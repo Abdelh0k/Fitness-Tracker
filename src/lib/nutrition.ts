@@ -1,4 +1,4 @@
-import type { ActivityLevel, Food, Goal, Nutrients, UserProfile } from '../types';
+import type { ActivityLevel, Food, Goal, Nutrients, UserProfile, WeeklyPace } from '../types';
 
 export const mealTypes = ['breakfast', 'lunch', 'dinner', 'snack'] as const;
 
@@ -16,15 +16,26 @@ const goalAdjustments: Record<Goal, number> = {
   muscle_gain: 200
 };
 
+/** How hard the user wants to push the deficit or surplus. Defaults to steady. */
+const paceFactors: Record<WeeklyPace, number> = {
+  easy: 0.6,
+  steady: 1,
+  fast: 1.5
+};
+
 export function roundTo(value: number, step = 5) {
   return Math.round(value / step) * step;
 }
 
-export function calculateTargets(input: Pick<UserProfile, 'age' | 'gender' | 'heightCm' | 'currentWeightKg' | 'activityLevel' | 'goal'>) {
+export function calculateTargets(
+  input: Pick<UserProfile, 'age' | 'gender' | 'heightCm' | 'currentWeightKg' | 'activityLevel' | 'goal'> &
+    Partial<Pick<UserProfile, 'weeklyPace'>>
+) {
   const sexConstant = input.gender === 'male' ? 5 : -161;
   const bmr = 10 * input.currentWeightKg + 6.25 * input.heightCm - 5 * input.age + sexConstant;
   const tdee = bmr * activityMultipliers[input.activityLevel];
-  const calories = Math.max(1500, roundTo(tdee + goalAdjustments[input.goal], 10));
+  const adjustment = goalAdjustments[input.goal] * paceFactors[input.weeklyPace || 'steady'];
+  const calories = Math.max(1500, roundTo(tdee + adjustment, 10));
   const protein = roundTo(input.currentWeightKg * (input.goal === 'muscle_gain' ? 2.1 : 2.0), 5);
   const fat = roundTo((calories * 0.25) / 9, 5);
   const carbs = Math.max(0, roundTo((calories - protein * 4 - fat * 9) / 4, 5));
@@ -118,7 +129,10 @@ export function defaultProfile(): UserProfile {
     calorieTarget: targets.calorieTarget,
     proteinTargetG: targets.proteinTargetG,
     fatTargetG: targets.fatTargetG,
-    carbTargetG: targets.carbTargetG
+    carbTargetG: targets.carbTargetG,
+    weeklyPace: 'steady',
+    cardioDaysPerWeek: 2,
+    onboardedAt: null
   };
 }
 

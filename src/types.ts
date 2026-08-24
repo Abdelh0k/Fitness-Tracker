@@ -1,6 +1,8 @@
 export type MealType = 'breakfast' | 'lunch' | 'dinner' | 'snack';
 export type Goal = 'fat_loss' | 'recomp' | 'muscle_gain' | 'maintain';
 export type ActivityLevel = 'light' | 'moderate' | 'active' | 'very_active';
+export type ExperienceLevel = 'new' | 'returning' | 'intermediate' | 'advanced';
+export type WeeklyPace = 'easy' | 'steady' | 'fast';
 
 export type Nutrients = {
   calories: number;
@@ -68,6 +70,13 @@ export type UserProfile = {
   proteinTargetG: number;
   fatTargetG: number;
   carbTargetG: number;
+  /** Everything below is optional — onboarding asks for it but never insists. */
+  targetWeightKg?: number;
+  experienceLevel?: ExperienceLevel;
+  weeklyPace?: WeeklyPace;
+  cardioDaysPerWeek?: number;
+  /** Set once the user has been through onboarding, whether they filled it in or skipped. */
+  onboardedAt?: string | null;
 };
 
 export type StrengthSet = {

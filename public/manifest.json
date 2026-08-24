@@ -1,7 +1,7 @@
 {
   "name": "Ateform",
   "short_name": "Ateform",
-  "description": "Food, training, body metrics, and progress tracking.",
+  "description": "Track what you eat, what you lift, and how it is going.",
   "start_url": "/",
   "scope": "/",
   "display": "standalone",
