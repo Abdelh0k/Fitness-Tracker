@@ -7,6 +7,7 @@ import {
   Bike,
   Camera,
   Carrot,
+  ChevronDown,
   ChevronLeft,
   ChevronRight,
   Drumstick,
@@ -55,12 +56,215 @@ type Tab = 'today' | 'food' | 'training' | 'cardio' | 'progress' | 'profile';
 type ProgressRange = 'week' | 'month';
 
 const templateSeeds: Record<string, string[]> = {
-  Push: ['Bench Press', 'Overhead Press', 'Incline Dumbbell Press', 'Lateral Raise', 'Triceps Pushdown'],
-  Pull: ['Deadlift', 'Lat Pulldown', 'Barbell Row', 'Face Pull', 'Barbell Curl'],
-  Legs: ['Back Squat', 'Romanian Deadlift', 'Leg Press', 'Leg Curl', 'Standing Calf Raise'],
-  Upper: ['Bench Press', 'Barbell Row', 'Overhead Press', 'Lat Pulldown', 'EZ Bar Curl'],
-  Lower: ['Back Squat', 'Romanian Deadlift', 'Leg Extension', 'Leg Curl', 'Seated Calf Raise']
+  Push: [
+    'Bench Press', 'Incline Barbell Press', 'Decline Bench Press', 'Overhead Press', 'Arnold Press',
+    'Incline Dumbbell Press', 'Dumbbell Shoulder Press', 'Chest Fly', 'Cable Crossover', 'Push-Up',
+    'Dips', 'Lateral Raise', 'Front Raise', 'Rear Delt Fly', 'Triceps Pushdown',
+    'Overhead Triceps Extension', 'Skull Crushers', 'Close-Grip Bench Press'
+  ],
+  Pull: [
+    'Deadlift', 'Barbell Row', 'Pendlay Row', 'T-Bar Row', 'Seated Cable Row',
+    'Lat Pulldown', 'Pull-Up', 'Chin-Up', 'Single-Arm Dumbbell Row', 'Face Pull',
+    'Shrugs', 'Barbell Curl', 'EZ Bar Curl', 'Dumbbell Curl', 'Hammer Curl',
+    'Preacher Curl', 'Concentration Curl', 'Cable Curl'
+  ],
+  Legs: [
+    'Back Squat', 'Front Squat', 'Romanian Deadlift', 'Leg Press', 'Leg Extension',
+    'Leg Curl', 'Walking Lunge', 'Bulgarian Split Squat', 'Hip Thrust', 'Glute Bridge',
+    'Standing Calf Raise', 'Seated Calf Raise', 'Hack Squat', 'Goblet Squat', 'Step-Up'
+  ],
+  Upper: [
+    'Bench Press', 'Barbell Row', 'Overhead Press', 'Lat Pulldown', 'Incline Dumbbell Press',
+    'Seated Cable Row', 'Lateral Raise', 'EZ Bar Curl', 'Triceps Pushdown', 'Face Pull',
+    'Pull-Up', 'Dips'
+  ],
+  Lower: [
+    'Back Squat', 'Romanian Deadlift', 'Leg Press', 'Leg Extension', 'Leg Curl',
+    'Bulgarian Split Squat', 'Hip Thrust', 'Walking Lunge', 'Standing Calf Raise',
+    'Seated Calf Raise', 'Glute Bridge', 'Front Squat'
+  ]
 };
+
+const exerciseLibrary: string[] = [
+  // Chest
+  'High Low Cable Chest Fly', 'Reverse Wrist Push-Up', 'Barbell Floor Press', 'Standing Cable Low Chest Press', 'Incline Barbell Bench Press',
+  'Superman Push-Up', 'Korean Dip', 'Low Cable Incline Bench Press', 'Standing Cable Chest Press', 'Knuckle Push-Up',
+  'Cable Kneeling High To Low Fly', 'One-Arm Cable Fly', 'Jack Push-Up', 'Punching Bag Boxing', 'Standing Downward Dog',
+  'Planche Dips', 'Deep Push Up On Parallel Bars', 'Low Incline Dumbbell Fly', 'One-Arm Push-Up', 'Straight Bar Dips',
+  'Scapula Push-Up', 'One-Arm Low Fly Dumbbell', 'Close Grip Dumbbell Press', 'Cable Middle Chest Fly', 'Svend Press',
+  'Floor Dumbbell Press', 'Decline Push-Up', 'Smith Bench Press', 'Dumbbell Larsen Press', 'Negative Push-Up',
+  'Incline Dumbbell Bench Press', 'Dumbbell Floor Chest Fly', 'Barbell Pullover', 'Pec Deck Chest Fly', 'Hammer Grip Dumbbell Bench Press',
+  'Dumbbell Poliquin Press', 'Decline Barbell Bench Press', 'Push-Up', 'Seated Cable Fly', 'Band Bench Chest Press',
+  'Incline Neutral Grip Dumbbell Press', 'Kneeling Ring Push-Up', 'Band Chest Fly', 'Decline Cable Chest Press', 'Band Warm-Up Dynamic Shoulder Stretch',
+  'Suspension Chest Fly', 'Spoto Press', 'Barbell Bench Press with Chains', 'Kneeling Back Rotation Stretch', 'One-Arm Dumbbell Incline Bench Press',
+  'Barbell Larsen Press', 'Incline Dumbbell Chest Fly', 'Machine Chest Press', 'Decline Chest Press', "World's Greatest Stretch",
+  'Lying Cable Fly', 'Resistance Band Push-Up', 'Clap Push-Up', 'Standing Incline Band Chest Fly', 'One-Arm High-to-Low Cable Fly',
+  'Archer Push-Up', 'Doorway Chest Stretch', 'Dumbbell Bench Press', 'Incline Hammer Chest Press', 'Lean Planche',
+  'Cross Body One-Arm Strength Press', 'Chest Dips', 'Kettlebell One Arm Floor Press', 'Standing Press Around', 'Elbow Out Chest Stretch',
+  'Lying Chest Press', 'Shoulder Tap', 'Seated Cable Chest Press', 'Ring Push-Up', 'One-Arm Dumbbell Bench Press',
+  'Kneeling Wide Push-Up', 'Decline Dumbbell Bench Press', 'Wide Hand Push-Up', 'Push-Up on Parallel Bars', 'Bench Press With Resistance Band',
+  'Pin Bench Press', 'One-Arm Low-to-High Cable Fly', 'Machine Chest Press Hammer Grip', 'Decline Smith Bench Press', 'Standing Chest Opener',
+  'Seated Chest Clam', 'Machine Chest Fly', 'Barbell Bench Press', 'Dumbbell Low to High Fly', 'Bent Arm Chest Stretch',
+  'Knee Push-Up', 'Low High Cable Chest Fly', 'Finger Push-Up', 'Decline Dumbbell Fly', 'Smith Incline Chest Press',
+  'Incline Push-Up', 'Cable Bench Press', 'Weighted Push-Up', 'Dumbbell Chest Fly', 'Poliquin Flyes',
+  'Dumbbell Deep Push Up', 'Incline Bench Cable Fly',
+  // Back
+  'One-Arm Lat Pulldown', 'Pull-Up', 'Weighted Pull-Up', 'One-Arm Dumbbell Bent Over Scapula Row', 'Close Grip Pull Up',
+  'Barbell Bent Over Row', 'One-Arm Cable Low Row', 'Seated Cable Wide Grip Row', 'Seated Cable Row', 'Rope Straight-Arm Lat Pulldown',
+  'Cable Wide Grip Behind Neck Pulldown', 'Wide Grip Rear Pull-Up', 'Chin-Up', 'Pull-Up Wide Grip', 'Suspension Row',
+  'Barbell Bent Over Row From Pin', 'One-Arm Straight-Arm Cable Lat Pulldown', 'Dumbbell Kelso Shrugs', 'One-Arm Chest Supported Row Machine', 'Cable Neutral Grip Lat Pulldown',
+  'One-Arm Low Cable Seated Row', 'Front Lever Pull-Up', 'Neck Side Stretch', 'Cable Lat Pulldown', 'Bent Over Kettlebell Row',
+  'Machine Shrugs', 'Wide Grip Chest Supported Row', 'Gorilla Row', 'Band Bent Over Lat Pulldown', 'Suspension Inverted Row',
+  'T-Bar Bent Over Row', 'Incline Bench Dumbbell Wide Row', 'Barbell Shrug Behind The Back', 'Dumbbell Bent Over Row', 'Machine Pullover',
+  'T-Bar Chest Suported Row', 'Wide Grip Lat Pulldown', 'Dumbbell Seal Row', 'Dumbbell Shoulder Shrugs', 'L Pull-Up',
+  'Seated Dumbbell Shrugs', 'Standing Side Lat Stretch', 'Pull Around', 'Cable Thibaudeau Kayak Row', 'One-Arm Landmine Bent Over Row',
+  'One-Arm Cable Half-Kneeling Lat Pulldown', 'One-Arm Band Kneeling Lat Pulldown', 'Australian Pull-Up Underhand Grip', 'Lever Low Row', 'Pull-Up Neutral Grip',
+  'Prone Swimmer', 'Smith Shoulder Shrug', 'Dip Shrugs', 'Chest Supported Machine Row', 'Band Pulldown Behind Neck',
+  'Rings Pull-Up', 'Rowing Machine', 'Seal Row', 'Alternate Renegade Row', 'One-Arm High Row Cable',
+  'Neck Curl', 'Ski Ergometer', 'Dumbbell Neutral Grip Incline Bench Row', 'Cable Close Grip Lat Pulldown', 'Barbell Shoulder Shrug',
+  'Flag', 'Barbell Reverse Grip Bent Over Row', 'Lat Pulldown Machine', 'Band High Anchor Wide Row', 'Cable Reverse Grip Pulldown',
+  'Incline Chest Supported Barbell Row', 'Kettlebel Renegade Row', 'Assisted Pull-Up', 'Barbell Rear Delt Row', 'Cable Seated Row Neutral Grip',
+  'One-Arm Cable Row', 'Lever High Row', 'Trap Bar Shrugs', 'Inverted Row (Australian)', 'Pendlay Row',
+  'Seated Cable Low Row Neutral Grip', 'Lever Back Extension', 'Dumbbell Pullover with Legs Raised', 'Cable Seated Supine Grip Row', 'Straight-Arm Lat Pulldown',
+  'Kneeling Cable Lat Pulldown', 'Narrow Grip Australian Pull-Up With Rings', 'Close Grip Landmine Row', 'Back Lever', 'One-Arm Seated Row',
+  'Cable Shrug', 'Barbell Incline Wide Grip Row', 'Band Assisted Pull Up', 'Inverted Shrug', 'Dumbbell Lat Pullover',
+  'Dumbbell Incline Chest Supported Lateral Raises', 'Front Lever', 'One-Arm Lever High Row', 'Negative Pull-Up', 'Smith Bent Over Row',
+  'Double Dumbbell Bent Over Row',
+  // Shoulders
+  'Barbell Behind Neck Shoulder Press', 'Dumbbell Push Press', 'Band Shoulder Press', 'Plate Front Raise Drive', 'Arm Circles',
+  'Dumbbell Front Raise', 'Cable Front Raise', 'One-Arm Cable Lateral Raise', 'Dumbbell Seated Lateral Raise', 'Barbell Push Press',
+  'Straddle Planche', 'Seated Cuban Press', 'One-Arm Shoulder Press Dumbbell', 'One-Arm Cable Front Raise', 'Bent Over Dumbbell Lateral Raise',
+  'Barbell Overhead Press', 'Lever Seated Hammer Grip Shoulder Press', 'Pike Push-Up Between Benches', 'Cable Upright Row', 'Lateral to Front Raise',
+  'Dumbbell Incline T Raise', 'Cable Supinated Face Pull', 'Dumbbell Cuban Rotation', 'Seated Face Pull', 'Kettlebell Around the Head Rotation',
+  'Standing Dumbbell Shoulder Press', 'Lying Cable Face Pull', 'Full Planche', 'Medicine Ball Slam', 'Pike Push-Up Between Chairs',
+  'Cable Face Pull', 'Barbell Wide Grip Upright Row', 'Seated Dumbbell Shoulder Press', 'Machine Reverse Flyes', 'One-Arm Landmine Standing Shoulder Press',
+  'Dumbbell Half Kneeling Shoulder Press', 'Half Kneeling Shoulder Dumbbell Press', 'Barbell Narrow Grip Upright Row', 'Machine Shoulder Press', 'Band Pass Through Shoulders',
+  'Weighted Woodchopper', 'Dumbbell Upright Row', 'Lying Cross Lateral Cable Fly', 'Static Front Hold', 'Kettlebell Clean and Jerk',
+  'Dumbbell Alternate Hammer Front Raise', 'Seated Shoulder External Rotation', 'Plate Bus Driver', 'Pike Push-Up', 'Ring Face Pull',
+  'Smith Seated Behind Neck Press', 'Incline Powell Raise', 'Standing Cuban Press', 'Barbell Shoulder Grip Upright Row', 'One-Arm Rear Delt Fly',
+  'Cable Rear Delt Fly (Reverse Fly)', 'Arm Circle', 'Dumbbell Seated Bent Over High Row', 'One-Arm Cable Bent Over Lateral Raise', 'Barbell Front Raise',
+  'Seated Arnold Dumbbell Press', 'Band Lateral Raise', 'Dumbbell Standing Alternate Press', 'Landmine Lateral Raise', 'Banded Face Pull',
+  'Handstand Push-Up', 'Alternate Bent Over Dumbbell Reverse Fly', 'One-Arm Dumbbell Supported Bent Over Lateral Raise', 'Cable Incline Y Raise Back Supported', 'Plate Front Raise',
+  'Seated Bent Over Dumbbell Lateral Raise', 'One-Arm Dumbbell Incline Lateral Raise', 'Cable Lateral Raise', 'Trap Y Raise', 'Band Upright Row',
+  'Dumbbell Lateral Raise', 'Dumbbell Lu Raises', 'Dumbbell Poliquin Lateral Raise', 'Cable Seated Rear Lateral Raise', 'Cable Leaning Lateral Raise',
+  'Dumbbell Snatch', 'Smith Machine Upright Row', 'One-Arm Dumbbell Lateral Raise', 'Chest Supported Lateral T Raise', 'Dumbbell Standing Driver',
+  'One-Arm Kettlebell Overhead Press', 'Turkish Get Up', 'One-Arm Landmine Half Kneeling Shoulder Press', 'Seated Shoulder Press Neutral Grip', 'Landmine Press',
+  'Dumbbell Alternate Front Raise', 'Powell Raise', 'One-Arm Cable Rear Delt Fly', 'Pike Push-Up On Bench', 'Rear Deltoid Stretch',
+  'Machine Lateral Raise', 'Dumbbell Rear Delt Row', 'Dumbbell Incline Rear Lateral T Raise', 'Smith Shoulder Press', 'Kettlebell Windmill',
+  'Cable Y Raise', 'Tsunami Overhead Press', 'Barbell Rear Delt Raise', 'Bird Dog Plank', 'Seated Barbell Shoulder Press',
+  'Wall Angel', 'Handstand Hold',
+  // Legs
+  'Sliding Leg Curl', 'Rocking Half Frog Stretch', 'Standing Tibialis Raise', 'Anderson Squat', 'Pistol Squat',
+  'Weighted Sissy Squat', 'Narrow Stance 45 Degree Leg Press', 'Barbell Calf Raise', 'Seated Single Leg Hamstring Stretch', 'Half Squat',
+  'Deficit Deadlift', 'Weighted Seated Calf Raise', 'Smith Chair Squat', 'Seated Hip Adduction', 'Barbell Squat',
+  'Pin Squat', 'Standing Forward Bend', 'Calf Leg Press', 'Snatch', 'Stationary Bike',
+  'Lying Butterfly Pose', 'Deadlift', 'Barbell Step-up', 'Single-Leg Calf Raise with Dumbbell', 'Lowbar Squat',
+  'Machine Belt Squat', 'Knee To Chest Stretch', 'Power Clean', 'High-Bar Squat', 'Box step-up',
+  'Lying Quadriceps Stretch', 'Deep Squat to Wide Fold with Foot Hold', 'Stair Climber', 'Standing Quadriceps Stretch', 'Leg Swings',
+  'Dumbbell Split Squat', 'Barbell Sumo Squat', 'Split Squat Front Foot Elevated', 'Bulgarian Bag Walking Lunges', 'Leg Press Wide Stance',
+  'Roll Foot', 'Seated Leg Curl', 'Nordic Hamstring Curl', 'Smith Machine Glute Kickback', 'Resistance Band Hip Adduction',
+  'Seated Calf Raise', 'Dumbbell Squat', 'Standing Leg Curl', 'Terminal Knee Extension', 'Bulgarian Squat Smith',
+  'Single Leg Press', 'Jump Rope', 'Treadmill Climbing', 'Front Squat', 'Lunge Stretch',
+  'Smith Squat', '90 To 90 Stretch', 'Downward Dog', 'Poliquin Step-Up', 'Hopping High Knee Tap',
+  'One-Arm Kettlebell Swing', 'Single-Leg Deadlift', 'Single-Leg Calf Raise', 'Half Kneeling Quad Stretch', 'Rotary Calf Raise',
+  'Barbell Walking Lunges', 'Dumbbell Jump', 'Box Jumps', 'Smith Hack Squat', 'Single Leg Seated Calf Machine Raise',
+  'Hang Power Clean', 'Walking Lunges', 'Barbell Hack Squat', 'Smith Split Squat', 'Snatch Pull',
+  'Squat', 'Dumbbell Cossack Squat', 'Band Lying Leg Curl', 'Dumbbell Walking Lunges', 'Barbell Rack Pull',
+  'Barbell Straight Leg Deadlift', 'Barbell Thruster', 'Standing Calf Raise', 'Prowler Sled', 'Kickboxing',
+  'Smith Calf Raises', 'Trap Bar Deadlift', 'Wall Sit', 'Goblet Squat', 'Side Lunges',
+  'Barbell Split Squat', 'Split Squat', 'Kettlebell Rear Lunge', 'Dumbbell Goblet Squat', 'Dumbbell Straight Leg Deadlift',
+  'Weighted Cossack Squat', 'Dumbbell Side Lunges', 'Crossack Squat', 'Hip Circles', 'Barbell Reverse Lunges',
+  'Machine Hack Squat', 'Sumo Squat', 'Glute-Ham Raise 1/2', 'Seated Leg Extension Machine', 'Plyo side lunge',
+  'Kettlebell Clean', 'Seated Single Leg Curl', 'Forward Band Monster Walk', 'Smith Squat To Bench', 'Cable Hip Adduction',
+  'Kettlebell Deadlift', 'Dumbbell Standing Calf Raises', 'Landmine Squat', 'Single-Leg Cable Leg Curl', 'Kettlebell Swing',
+  'Elliptical Trainer', 'Smith Seated Calf Raise', 'Machine Reverse Hack Squat', 'Assisted Pistol Squat', 'Pin Front Squat',
+  'Dumbbell Step-Up', 'Smith Kneeling Hip Thrust', 'Rear Lunge', 'Broad Jump', 'Clean Squat',
+  'Side Lying Quadriceps Stretch', 'Lizard Pose', 'Bulgarian Jump Squat', 'Rocking Frog', 'Smith Front Squat',
+  'Zercher Squat', 'Burpee', 'Smith Zercher Squat', 'Superman', 'Butterfly Stretch',
+  'Prone Lying Leg Curl', 'Pogo Jumps', 'Jumping Jacks', 'Barbell Cossack Squat', 'Pistol Box Squat',
+  'Machine Calf Raises', 'Smith Rear Lunge', 'Stability Ball Wall Squat', 'Vertical Leg Press Smith Machine', 'Single-Leg Lying Curl',
+  'Sumo Squat With Smith', 'Lever Horizontal Leg Press', 'Walking Cardio', 'Single-Leg Box Jump', 'Dumbbell Bulgarian Squat',
+  'Single Leg Dumbbell Deadlift', 'Weighted Pistol Squat', 'Swiss Ball Leg Curl', 'Box Squat', 'Clean and Jerk',
+  'Jump Squat', 'Assault Air Bike', 'Single-Leg Seated Calf Raise with Dumbbell', 'Sissy Squat', 'Reverse Nordic Curl',
+  'Kneeling Hamstring Stretch', 'Bench Front Squat', 'Dumbbell Deadlift Straight Legs', 'Cable Romanian Deadlift', 'Seated Forward Fold',
+  'Jefferson Curl', 'Side Leg Swings', 'Leg Press', 'Cyclist Squat', 'B Stance Romanian Deadlift',
+  'Dumbbell Lying Leg Curl', 'Treadmill Run', 'Dumbbell Romanian Deadlift', 'Sumo Squat off Stepbox', 'Dumbbell Lunges',
+  'Smith Romanian Deadlift', 'Lunges', 'Cable Step Up', 'Roll Calves', 'Dumbbell Deadlift',
+  'Single-Leg Extension', 'Happy Baby Pose', 'Ring Leg Curl', 'Cable Terminal Knee Extension', 'Single Leg Smith Calf Raise',
+  'Butterfly Lean Forward Stretch', 'Running', 'Barbell Overhead Squat', 'Band Squat', 'Barbell Bulgarian Squat',
+  // Glutes
+  'Dumbbell Single Leg Hip Thrust', 'Kneeling Resistance Band Glute Kickback', 'Dumbbell Reverse Lunge off Step', 'Cable Hip Abducction', 'Barbell Good Morning',
+  'Mini Band Glute Bridge', 'Smith Machine Good Morning', 'Seated Band Hip Abduction', 'Donkey Kick', 'Hip Thrust Smith Machine',
+  'Single Leg Romanian Deadlift', 'Weighted Back Extension', 'Seated Figure 4 Stretch', 'Band Standing Balance Glute Kickback', 'Barbell Rear Lunge On Step',
+  'Figure 4 Stretch on Chair', 'Hip Thrust', 'Side Plank Hip Abduction', 'Glute Bridge', 'Glute Cable Kickback',
+  'Weighted Glute Bridge', 'Side Lying Hip Abduction', 'Barbell Glute Bridge', 'Sumo Deadlift', 'Pigeon Pose',
+  'Glutes Roll', 'Standing Hip Abduction', 'Back Extension', 'Dumbbell Rear Lunge', 'Cable Pull Through',
+  'Glute Machine Kickback', 'Lying Knee To Chest Stretch', 'KAS Glute Bridge', 'Dumbbell Sumo Squat', 'Glute Bridge on Bench',
+  'Single Leg Weighted Glute Bridge', 'Hip Hinge', 'Back Extension With Dumbbell', 'Romanian Deadlift', 'Kettlebell Goblet Squat',
+  'Seated Hip Abduction', 'Band Hip Abduction', 'Band Reverse Hyperextension', 'Lateral Monster Walk', 'Frog Pump',
+  'Bulgarian Squat', 'Machine Hip Thrust', 'Side Plank Clamshell', "Child's Pose", 'Deadlift from Blocks',
+  'Band Lying Clamshells', 'Seated Good Morning', 'Bird Dog', 'Dumbbell Hip Thrust', 'Glute Bridge Single Leg',
+  // Biceps
+  'Band Biceps Curl', 'Zottman Curl', 'Close-grip EZ Bar Curl', 'Bayesian Cable Curl', 'Bar Cable Biceps Curl',
+  'Dumbbell Spider Curl', 'Seated Dumbbell Curl', 'Spider Hammer Curl', 'Ring Muscle Up', 'Single Dumbbell Curl',
+  'Dumbbell Supinated Preacher Curl', 'One-Arm Machine Preacher Curl', 'EZ-Bar Preacher Curl', 'Double Dumbbell Preacher Curl', 'Dumbbell Incline Hammer Curl',
+  'Cable Squatting Curl', 'One-Arm Cable Biceps Curl', 'TRX Biceps Curl', 'EZ-Bar Biceps Curl', 'Band Hammer Curl',
+  'Barbell Prone Incline Curl', 'Arm Blaster Biceps Dumbbell Curl', 'Dumbbell Hammer Curl', 'Biceps Barbell Curl', 'Dumbbell Alternate Supinated Curl',
+  'Bayesian Cable Curl Seated', 'Seated Hammer Curl', 'One-Arm Preacher Hammer Curl', 'Weighted Chin Up', 'Wide Grip Standing Barbell Curl',
+  'Dumbbell Drag Curl', 'Dumbbell Biceps Curl', 'Dumbbell Incline Alternate Supinated Curl', 'Machine Biceps Curl', 'Hercules Curl',
+  'Barbell Preacher Curl', 'EZ-Bar Spider Curl', 'Incline Cable Curl', 'Bayesian Cable Curl (Face Away)', 'Dumbbell Cross Body Hammer Curl',
+  'Close Grip Biceps Curl', 'One-Arm Hammer Cable Curl', 'Barbell Drag Curl', 'Concentration Hammer Curl', 'Kettlebell Biceps Curl',
+  'Preacher Hammer Curl', 'Dumbbell Concentration Curl', 'Alternate Dumbbell Hammer Curl', 'Seated Incline Biceps Curl', 'One-Arm Dumbbell Preacher Curl',
+  'Dumbbell Seated Alternate Hammer Curl', 'Barbell Wall Curl', 'Rope Cable Hammer Curl', 'Machine Preacher Curl', 'Cable Preacher Curl',
+  'Alternate Biceps Curl',
+  // Triceps
+  'Diamond Push-Up', 'Weighted Dips', 'Cable Incline Skull Crusher', 'Cable Cross Triceps Extension', 'Triceps Cable Pushdown Reverse Grip',
+  'JM Press', 'Cross Arms Push-Up', 'Standing One Dumbbell French Press', 'Knee Close Grip Push-Up', 'Lying EZ-Bar Triceps Extension',
+  'Close Grip Smith Bench Press', 'Incline Close Grip Push-Up', 'EZ-Bar Seated Triceps Extension', 'Cobra Push-Up', 'Tate Press',
+  'Overhead Triceps Stretch', 'Weighted Bench Dips', 'Close Grip Incline Dumbbell Bench Press', 'One-Arm Katana Triceps Overhead Extension', 'Lying Barbell Triceps Extension (Skullcrusher)',
+  'Ring Triceps Extension', 'Planche Push-Up', 'One-Arm Cable Cross Body Triceps Extension', 'Bird Dog Push-Up', 'Close Grip Push-Up',
+  'Frog Planche', 'Dips', 'Triceps Push-Up', 'One-Arm Reverse Grip Triceps Cable Pushdown', 'One-Arm Triceps Cable Pushdown',
+  'High Pulley Overhead Triceps Extension', 'Cable Overhead Triceps Extension', 'One-Arm Dumbbell Seated Kickback', 'EZ-Bar Tricep Pushdown', 'Seated Triceps Bench Dip',
+  'Ring Dips', 'Dumbbell Lying Triceps Extension', 'Suspension Triceps Extension', 'Dumbbell Seated Triceps Extension', 'Machine Triceps Extension',
+  'Triceps Pushdown V-Bar', 'Assisted Machine Dips', 'One-Arm Cable Triceps Pushdown', 'Overhead Cable Triceps Extension (bar)', 'Cable Triceps Pushdown',
+  'Standing Overhead Barbell Triceps Extension', 'Underhand Triceps Extension', 'Katana Triceps Extension', 'Decline Barbell French Press', 'Triceps Cable Kickback',
+  'Weighted Muscle-Up', 'Muscle-up', 'California Press', 'Overhead Band Triceps Extension', 'Incline Barbell Triceps Extension',
+  'Decline Diamond Push-Up', 'Seated Cable Horizontal French Press', 'Full Planche Push-Up', 'Incline Dumbbell Triceps Extension', 'Cable Double-Arm Tricep Kickback',
+  'Knee Diamond Push-Up', 'Band Triceps Pushdown', 'Seated Dip Machine', 'One-Arm Cable Pushdown', 'One-Arm Overhead Triceps Extension',
+  'Reverse Hand Push-Up', 'Rope Triceps Pushdown',
+  // Forearms
+  'Dumbbell Lying Pronation', 'One-Arm Neutral Wrist Dumbbell Curl', 'One-Arm Wrist Curl Dumbbell', 'EZ-Bar Seated Reverse Wrist Curl', 'One-Arm Dumbbell Supination',
+  'Farmer Walk', 'Barbell Standing Wrist Curl', 'Dumbbell Standing Wrist Curl', 'Wrist Push-Up', 'Barbell Standing Back Wrist Curl',
+  'Wrist Roller', 'EZ-Bar Seated Wrist Curl', 'Barbell Reverse Grip Forearm Curl', 'Unilateral Farmer Walk', 'EZ-Bar Reverse Spider Curl',
+  'Dumbbell Farmer Carry', 'EZ-Bar Reverse Grip Biceps Curl', 'Dumbbell Standing Reverse Wrist Curls', 'Dead Hang', 'Barbell Reverse Wrist Curl',
+  'Reverse Grip Cable Curl', 'Dumbbell Biceps Reverse Curl', 'Cable Wrist Curl', 'Seated Cable Wrist Curl', 'Hanging Scapular Retractions',
+  'Barbell Wrist Curl', 'Hand Gripper', 'One-Arm Dumbbell Reverse Wrist Curl', 'Cable Standing Wrist Roll',
+  // Abs
+  'Knee Tuck Crunch', 'Bodyweight Windmill', 'Rotary Torso', 'L-Sit', 'Band Standing Side Bend',
+  'Sitting Twist', 'Cable Twist (horizontal)', 'Leg In and Out', 'Weighted Decline Crunch', 'Hanging Scissors Kicks',
+  'Ab Wheel Rollout', 'Dumbbell Side Bridge', 'Abdominal Crunches', 'Band Standing Twisting Crunches', 'Hollow Body Hold',
+  'Weighted Straight Arm Crunch', 'Straight Leg Raise on Dip Bars', 'Cable Twist (up down)', 'Seated Alternate Crunches', 'Hanging Knee To Chest',
+  'Incline Bench Leg Raises', 'Dragon Flag', 'Weighted Sit Up', 'Dead Bug', 'Med Ball Russian twist',
+  'Band Pallof Press', 'Band Russian Twist', 'Band Standing Crunches', 'Cable Kneeling Side Crunch', 'Machine Abdominal Crunches',
+  'Bicycle Crunches', 'Scissors', 'Low Cable Horizontal Pallof Press', 'Hanging Knees to Elbows', 'Weighted Dead Bug',
+  'Stability Ball Crunch', 'Kneeling Band Abs Crunches', 'Barbell Standing Twist', 'Sit Up', 'Lying Stright Leg Raise',
+  'Machine Lying Crunch', 'Ring Pike', 'Dead Bug with Ball', 'Plank', 'Hanging Knees to Elbows Waist',
+  'Seated Reverse Circle Crunches', 'V-Up', 'Band Twist (horizontal)', 'V-Sit Crunch', 'Toes To Bar',
+  'Standing Air Bike', 'Weighted Plank', 'Air Bike', 'Mountain climber', "Capitan's Chair Straight Leg Raises",
+  'Incline Twisting Sit Up', 'Shoulderstand Pose', 'Hanging Knee Circles', 'Frog Crunch', 'Hanging Leg Raise To Bar',
+  'Hanging Straight Leg Raise', 'High To Low Band Woodchopper', 'Crab Pose', 'Band Half Kneeling Chop', 'Weighted Hollow Body Hold',
+  'Knee Raise Ab Coaster', 'Seated Machine Trunk Rotation', 'Seated Leg Raise', 'Side Crunch', 'Suspension V-Ups',
+  'Reverse Crunches', 'Dumbbell Standing Side Bend', 'Toe Touches', 'Dumbbell Russian Twist', 'Hanging Half Windmill',
+  'Upward Dog', 'Weighted Russian Twist', 'Seated Flutter Kick', 'Side Plank', 'Swiss Ball Plank',
+  'Saw Plank', 'Standing Cable Ab Crunch', 'Barbell Rollout - Kneeling', 'Bottom up rotation', 'Band Kneeling Twisting Crunch',
+  'Bear Plank', 'Lying Spinal Twist', 'Janda Sit Up', 'Standing Russian Twist', 'TRX Single Leg Bird Dog',
+  'Abdominal Vaccum', 'Seated Ab Cable Crunch', 'Weighted Hanging Leg Raise', 'Weighted Ab Crunches', 'Opposite side elbow to knee',
+  'Cable Horizontal Pallof Press', 'Landmine Twist', 'Band Bicycle Crunches', 'Hanging Oblique Knee Raise', 'Ankle Taps',
+  'Cat Cow', 'Hanging Knee Raises', 'Kneeling Cable Abs Crunches', 'Decline Crunch', 'Seated Barbell Twist',
+  'Captains Chair Knee Raises'
+];
+
+const allKnownExercises = Array.from(new Set([...Object.values(templateSeeds).flat(), ...exerciseLibrary])).sort();
 
 const weekDays = [
   { label: 'Mon', full: 'Monday' },
@@ -325,6 +529,14 @@ export default function App() {
     flash('Program saved');
   }
 
+  async function deleteProgram(id: string) {
+    commit({ ...state, programs: state.programs.filter((entry) => entry.id !== id) });
+    if (supabase && session && !localMode) {
+      const { error } = await supabase.from('training_programs').delete().eq('id', id);
+      failed('change', error);
+    }
+  }
+
   async function saveCardio(entry: CardioEntry) {
     commit({ ...state, cardio: [entry, ...state.cardio] });
     if (supabase && session && !localMode) {
@@ -481,6 +693,7 @@ export default function App() {
             programs={state.programs}
             onSaveStrength={saveStrength}
             onSaveProgram={saveProgram}
+            onDeleteProgram={deleteProgram}
           />
         ) : null}
         {tab === 'cardio' ? (
@@ -1061,43 +1274,71 @@ function TrainingView({
   session,
   programs,
   onSaveStrength,
-  onSaveProgram
+  onSaveProgram,
+  onDeleteProgram
 }: {
   date: string;
   session?: StrengthSession;
   programs: TrainingProgram[];
   onSaveStrength: (session: StrengthSession) => Promise<void>;
   onSaveProgram: (program: TrainingProgram) => Promise<void>;
+  onDeleteProgram: (id: string) => Promise<void>;
 }) {
-  const [template, setTemplate] = useState(session?.templateName || 'Push');
-  const [exercises, setExercises] = useState<StrengthExercise[]>(session ? normalizeExercises(session.exercises) : templateSeeds.Push.map((name) => ({ name, sets: [{ weightKg: 0, reps: 0 }] })));
-  const [exerciseModalOpen, setExerciseModalOpen] = useState(false);
-  const [exerciseName, setExerciseName] = useState('');
-  const [programModalOpen, setProgramModalOpen] = useState(false);
-  const [selectedProgramId, setSelectedProgramId] = useState(programs[0]?.id || '');
-  const [programDraft, setProgramDraft] = useState<TrainingProgram>({ id: uid('program'), name: 'My program', days: [] });
-  const [editingDayId, setEditingDayId] = useState('');
-  const [programExercise, setProgramExercise] = useState('');
-
-  const selectedProgram = programs.find((program) => program.id === selectedProgramId) || programs[0];
   const weekday = new Date(`${date}T00:00:00`).getDay();
   const mondayFirstDay = weekday === 0 ? 6 : weekday - 1;
-  const editingDay = programDraft.days.find((day) => day.id === editingDayId) || programDraft.days[0];
+
+  const [expandedExercises, setExpandedExercises] = useState<Set<number>>(new Set());
+  const [exerciseModalOpen, setExerciseModalOpen] = useState(false);
+  const [exerciseName, setExerciseName] = useState('');
+  const [selectedProgramId, setSelectedProgramId] = useState(programs[0]?.id || '');
+  const [viewDayIndex, setViewDayIndex] = useState(mondayFirstDay);
+  const [dayNameDraft, setDayNameDraft] = useState('');
+  const [daySearch, setDaySearch] = useState('');
+  const [programsSheetOpen, setProgramsSheetOpen] = useState(false);
+  const [newProgramName, setNewProgramName] = useState('');
+  const [confirmTarget, setConfirmTarget] = useState<{ text: string; onConfirm: () => void } | null>(null);
+  const [selectMode, setSelectMode] = useState(false);
+  const [selectedIndexes, setSelectedIndexes] = useState<Set<number>>(new Set());
+
+  const selectedProgram = programs.find((program) => program.id === selectedProgramId) || programs[0];
+  const todaysProgramDayRaw = selectedProgram?.days.find((day) => day.weekday === mondayFirstDay);
+  const todaysProgramDay = todaysProgramDayRaw?.isRestDay ? undefined : todaysProgramDayRaw;
+  const viewedDay = selectedProgram?.days.find((day) => day.weekday === viewDayIndex);
+
+  const [template, setTemplate] = useState(session?.templateName || todaysProgramDay?.name || '');
+  const [exercises, setExercises] = useState<StrengthExercise[]>(() => {
+    if (session) return normalizeExercises(session.exercises);
+    if (todaysProgramDay) return todaysProgramDay.exercises.map((name) => ({ name, sets: [{ weightKg: 0, reps: 0 }, { weightKg: 0, reps: 0 }, { weightKg: 0, reps: 0 }] }));
+    return [];
+  });
 
   useEffect(() => {
     if (session) {
       setTemplate(session.templateName);
       setExercises(normalizeExercises(session.exercises));
+      return;
     }
-  }, [session]);
+    setTemplate(todaysProgramDay?.name || '');
+    setExercises(todaysProgramDay ? todaysProgramDay.exercises.map((name) => ({ name, sets: [{ weightKg: 0, reps: 0 }, { weightKg: 0, reps: 0 }, { weightKg: 0, reps: 0 }] })) : []);
+  }, [session, todaysProgramDay]);
 
   useEffect(() => {
     if (programs.length && !programs.some((program) => program.id === selectedProgramId)) setSelectedProgramId(programs[0].id);
   }, [programs, selectedProgramId]);
 
-  function switchTemplate(name: string) {
-    setTemplate(name);
-    setExercises(templateSeeds[name].map((exercise) => ({ name: exercise, sets: [{ weightKg: 0, reps: 0 }, { weightKg: 0, reps: 0 }, { weightKg: 0, reps: 0 }] })));
+  useEffect(() => {
+    setDayNameDraft(viewedDay?.name || '');
+    setDaySearch('');
+    setSelectMode(false);
+    setSelectedIndexes(new Set());
+  }, [viewDayIndex, selectedProgramId, viewedDay?.name]);
+
+  function toggleExpanded(exerciseIndex: number) {
+    setExpandedExercises((current) => {
+      const next = new Set(current);
+      if (next.has(exerciseIndex)) next.delete(exerciseIndex); else next.add(exerciseIndex);
+      return next;
+    });
   }
 
   function updateSet(exerciseIndex: number, setIndex: number, field: 'weightKg' | 'reps', value: number) {
@@ -1107,64 +1348,100 @@ function TrainingView({
     }));
   }
 
-  function addExercise() {
-    const name = exerciseName.trim();
-    if (!name) return;
-    setExercises([...exercises, { name, sets: [{ weightKg: 0, reps: 0 }] }]);
+  function addExercise(name?: string) {
+    const cleanName = (name ?? exerciseName).trim();
+    if (!cleanName) return;
+    setExercises([...exercises, { name: cleanName, sets: [{ weightKg: 0, reps: 0 }] }]);
+    setExpandedExercises((current) => new Set(current).add(exercises.length));
+    if (!template) setTemplate('Workout');
     setExerciseName('');
     setExerciseModalOpen(false);
   }
 
-  function beginProgram(program?: TrainingProgram) {
-    const draft = program
-      ? { ...program, days: program.days.map((day) => ({ ...day, exercises: [...day.exercises] })) }
-      : { id: uid('program'), name: 'My program', days: [] };
-    setProgramDraft(draft);
-    setEditingDayId(draft.days[0]?.id || '');
-    setProgramExercise('');
-    setProgramModalOpen(true);
+  function updateViewedDay(update: Partial<Pick<ProgramDay, 'name' | 'exercises' | 'isRestDay'>>) {
+    if (!selectedProgram) return;
+    const exists = selectedProgram.days.some((day) => day.weekday === viewDayIndex);
+    const nextDays = exists
+      ? selectedProgram.days.map((day) => day.weekday === viewDayIndex ? { ...day, ...update } : day)
+      : [...selectedProgram.days, { id: uid('program-day'), weekday: viewDayIndex, name: 'Workout', exercises: [], ...update }].sort((a, b) => a.weekday - b.weekday);
+    void onSaveProgram({ ...selectedProgram, days: nextDays });
   }
 
-  function addProgramDay(weekdayIndex: number) {
-    const existing = programDraft.days.find((day) => day.weekday === weekdayIndex);
-    if (existing) {
-      setEditingDayId(existing.id);
-      return;
-    }
-    const day: ProgramDay = { id: uid('program-day'), weekday: weekdayIndex, name: 'Workout', exercises: [] };
-    setProgramDraft({ ...programDraft, days: [...programDraft.days, day].sort((a, b) => a.weekday - b.weekday) });
-    setEditingDayId(day.id);
+  function commitDayName() {
+    const clean = dayNameDraft.trim();
+    if (!viewedDay || !clean || clean === viewedDay.name) return;
+    updateViewedDay({ name: clean });
   }
 
-  function updateProgramDay(dayId: string, update: Partial<ProgramDay>) {
-    setProgramDraft({ ...programDraft, days: programDraft.days.map((day) => day.id === dayId ? { ...day, ...update } : day) });
+  function addExerciseToDay(name: string) {
+    const clean = name.trim();
+    if (!clean) return;
+    updateViewedDay({ name: viewedDay?.name || dayNameDraft.trim() || 'Workout', exercises: [...(viewedDay?.exercises || []), clean], isRestDay: false });
+    setDaySearch('');
   }
 
-  function addProgramExercise() {
-    if (!editingDay || !programExercise.trim()) return;
-    updateProgramDay(editingDay.id, { exercises: [...editingDay.exercises, programExercise.trim()] });
-    setProgramExercise('');
+  function useTemplateForDay(templateName: string) {
+    updateViewedDay({ name: templateName, exercises: [...templateSeeds[templateName]], isRestDay: false });
+    setDayNameDraft(templateName);
   }
 
-  function useTemplateInProgram(templateName: string) {
-    if (!editingDay) return;
-    updateProgramDay(editingDay.id, { name: templateName, exercises: [...templateSeeds[templateName]] });
+  function toggleRestDay() {
+    updateViewedDay({ isRestDay: !viewedDay?.isRestDay });
   }
 
-  function saveProgramDraft() {
-    const cleanName = programDraft.name.trim();
-    const cleanDays = programDraft.days
-      .map((day) => ({ ...day, name: day.name.trim() || 'Workout', exercises: day.exercises.filter(Boolean) }))
-      .filter((day) => day.exercises.length > 0);
-    if (!cleanName || !cleanDays.length) return;
-    void onSaveProgram({ ...programDraft, name: cleanName, days: cleanDays });
-    setSelectedProgramId(programDraft.id);
-    setProgramModalOpen(false);
+  function removeExerciseFromDay(index: number) {
+    if (!viewedDay) return;
+    const name = viewedDay.exercises[index];
+    setConfirmTarget({
+      text: `Remove "${name}" from ${weekDays[viewDayIndex].full}?`,
+      onConfirm: () => updateViewedDay({ exercises: viewedDay.exercises.filter((_, i) => i !== index) })
+    });
   }
 
-  function startProgramDay(day: ProgramDay) {
-    setTemplate(day.name);
-    setExercises(day.exercises.map((name) => ({ name, sets: [{ weightKg: 0, reps: 0 }, { weightKg: 0, reps: 0 }, { weightKg: 0, reps: 0 }] })));
+  function toggleSelectMode() {
+    setSelectMode((current) => !current);
+    setSelectedIndexes(new Set());
+  }
+
+  function toggleExerciseSelected(index: number) {
+    setSelectedIndexes((current) => {
+      const next = new Set(current);
+      if (next.has(index)) next.delete(index); else next.add(index);
+      return next;
+    });
+  }
+
+  function requestDeleteSelected() {
+    if (!viewedDay || !selectedIndexes.size) return;
+    const count = selectedIndexes.size;
+    setConfirmTarget({
+      text: `Remove ${count} exercise${count === 1 ? '' : 's'} from ${weekDays[viewDayIndex].full}?`,
+      onConfirm: () => {
+        updateViewedDay({ exercises: viewedDay.exercises.filter((_, i) => !selectedIndexes.has(i)) });
+        setSelectMode(false);
+        setSelectedIndexes(new Set());
+      }
+    });
+  }
+
+  function requestDeleteProgram(program: TrainingProgram) {
+    setConfirmTarget({
+      text: `Delete "${program.name}"? This removes the whole program and can't be undone.`,
+      onConfirm: () => {
+        void onDeleteProgram(program.id);
+        if (program.id === selectedProgram?.id) setSelectedProgramId(programs.find((item) => item.id !== program.id)?.id || '');
+      }
+    });
+  }
+
+  function createProgram() {
+    const name = newProgramName.trim();
+    if (!name) return;
+    const program: TrainingProgram = { id: uid('program'), name, days: [] };
+    void onSaveProgram(program);
+    setSelectedProgramId(program.id);
+    setNewProgramName('');
+    setProgramsSheetOpen(false);
   }
 
   return (
@@ -1172,45 +1449,132 @@ function TrainingView({
       <div className="panel program-overview">
         <div className="panel-head">
           <div><p className="eyebrow">Your week</p><h2>{selectedProgram?.name || 'No program yet'}</h2></div>
-          <button className="secondary small" onClick={() => beginProgram(selectedProgram)}>{selectedProgram ? 'Edit' : <><Plus size={14} /> Set one up</>}</button>
+          <button className="secondary small" onClick={() => setProgramsSheetOpen(true)}>Program <ChevronDown size={14} /></button>
         </div>
-        {programs.length > 1 ? <select className="program-select" value={selectedProgram?.id || ''} onChange={(event) => setSelectedProgramId(event.target.value)}>{programs.map((program) => <option key={program.id} value={program.id}>{program.name}</option>)}</select> : null}
         {selectedProgram ? (
           <div className="program-days">{weekDays.map((day, index) => {
             const programDay = selectedProgram.days.find((item) => item.weekday === index);
-            return <div className={`program-day ${index === mondayFirstDay ? 'today' : ''} ${programDay ? 'planned' : ''}`} key={day.label}><span>{day.label}</span>{programDay ? <><strong>{programDay.name}</strong><small>{programDay.exercises.length} exercises</small><button onClick={() => startProgramDay(programDay)}>Use this</button></> : <small>Rest</small>}</div>;
+            const isRest = !programDay || programDay.isRestDay;
+            return (
+              <button type="button" className={`program-day ${index === mondayFirstDay ? 'today' : ''} ${!isRest ? 'planned' : ''} ${index === viewDayIndex ? 'viewing' : ''}`} key={day.label} onClick={() => setViewDayIndex(index)}>
+                <span>{day.label}</span>
+                {!isRest ? <><strong>{programDay!.name}</strong><small>{programDay!.exercises.length} exercises</small></> : <small>{programDay ? 'Rest' : 'Rest — tap to add'}</small>}
+              </button>
+            );
           })}</div>
-        ) : <Empty title="No program yet" text="Set up your week however you train — push/pull/legs, upper/lower, full body, whatever works for you." />}
+        ) : <Empty title="No program yet" text="Tap Program above to create your first one — push/pull/legs, upper/lower, full body, whatever works for you." />}
       </div>
 
-      <div className="panel">
-        <div className="panel-head">
-          <div><p className="eyebrow">Right now</p><h2>{template}</h2></div>
-          <button className="secondary small" onClick={() => setExerciseModalOpen(true)}><Plus size={14} /> Add exercise</button>
-        </div>
-        <div className="segmented">
-          {Object.keys(templateSeeds).map((name) => <button key={name} className={template === name ? 'active' : ''} onClick={() => switchTemplate(name)}>{name}</button>)}
-        </div>
-        <div className="exercise-list">
-          {exercises.map((exercise, exerciseIndex) => (
-            <div className="exercise-card" key={`${exercise.name}-${exerciseIndex}`}>
-              <input className="exercise-name" value={exercise.name} onChange={(e) => setExercises(exercises.map((item, i) => i === exerciseIndex ? { ...item, name: e.target.value } : item))} />
-              {exercise.sets.map((set, setIndex) => (
-                <div className="set-line" key={setIndex}>
-                  <span>{setIndex + 1}</span>
-                  <input inputMode="decimal" value={set.weightKg || ''} onChange={(e) => updateSet(exerciseIndex, setIndex, 'weightKg', Number(e.target.value) || 0)} placeholder="kg" />
-                  <input inputMode="numeric" value={set.reps || ''} onChange={(e) => updateSet(exerciseIndex, setIndex, 'reps', Number(e.target.value) || 0)} placeholder="reps" />
-                  <button className="icon-only" onClick={() => setExercises(exercises.map((item, i) => i === exerciseIndex ? { ...item, sets: item.sets.filter((_, j) => j !== setIndex) } : item))}>x</button>
-                </div>
-              ))}
-              <button className="text-button" onClick={() => setExercises(exercises.map((item, i) => i === exerciseIndex ? { ...item, sets: [...item.sets, { weightKg: 0, reps: 0 }] } : item))}>Add set</button>
+      {selectedProgram ? (
+        <div className="panel">
+          <div className="panel-head">
+            <div>
+              <p className="eyebrow">{weekDays[viewDayIndex].full}</p>
+              <input className="day-name-input" value={dayNameDraft} onChange={(e) => setDayNameDraft(e.target.value)} onBlur={commitDayName} onKeyDown={(e) => e.key === 'Enter' && (e.target as HTMLInputElement).blur()} placeholder="Rest day" disabled={Boolean(viewedDay?.isRestDay)} />
             </div>
-          ))}
+            <label className="rest-day-toggle">
+              <input type="checkbox" checked={Boolean(viewedDay?.isRestDay)} onChange={toggleRestDay} />
+              Rest day
+            </label>
+          </div>
+          {viewedDay?.isRestDay ? (
+            <Empty title="Marked as a rest day" text="Exercises for this day are hidden but kept. Uncheck 'Rest day' above to bring them back." />
+          ) : (
+            <>
+              <div className="template-pills">{Object.keys(templateSeeds).map((name) => <button key={name} onClick={() => useTemplateForDay(name)}>Use {name}</button>)}</div>
+              {viewedDay?.exercises.length ? (
+                <div className="exercise-list-toolbar">
+                  <button className="text-button" onClick={toggleSelectMode}>{selectMode ? 'Cancel' : 'Select'}</button>
+                  {selectMode ? (
+                    <>
+                      <button className="text-button" onClick={() => setSelectedIndexes(new Set(viewedDay.exercises.map((_, i) => i)))}>Select all</button>
+                      <button className="danger-button small" onClick={requestDeleteSelected} disabled={!selectedIndexes.size}>
+                        <Trash2 size={13} /> Delete{selectedIndexes.size ? ` (${selectedIndexes.size})` : ''}
+                      </button>
+                    </>
+                  ) : null}
+                </div>
+              ) : null}
+              <div className="program-exercise-list">
+                {viewedDay?.exercises.length ? viewedDay.exercises.map((name, index) => (
+                  <div key={`${name}-${index}`}>
+                    {selectMode ? (
+                      <input type="checkbox" checked={selectedIndexes.has(index)} onChange={() => toggleExerciseSelected(index)} />
+                    ) : (
+                      <span>{index + 1}</span>
+                    )}
+                    <strong>{name}</strong>
+                    {selectMode ? <span /> : <button className="icon-only" onClick={() => removeExerciseFromDay(index)} aria-label={`Remove ${name}`}><X size={15} /></button>}
+                  </div>
+                )) : <p className="hint">Nothing planned for this day yet.</p>}
+              </div>
+              <div className="add-program-exercise">
+                <input value={daySearch} onChange={(e) => setDaySearch(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && addExerciseToDay(daySearch)} placeholder="Search exercises or type your own..." />
+                <button className="secondary small" onClick={() => addExerciseToDay(daySearch)} disabled={!daySearch.trim()}><Plus size={14} /> Add</button>
+              </div>
+              {daySearch.trim() ? (
+                <div className="exercise-search-results">
+                  {allKnownExercises
+                    .filter((name) => name.toLowerCase().includes(daySearch.trim().toLowerCase()) && !(viewedDay?.exercises || []).includes(name))
+                    .slice(0, 8)
+                    .map((name) => (
+                      <button key={name} onClick={() => addExerciseToDay(name)}>
+                        <Plus size={13} /> {name}
+                      </button>
+                    ))}
+                </div>
+              ) : null}
+            </>
+          )}
         </div>
-        <button className="primary" onClick={() => onSaveStrength({ id: session?.id || uid('strength'), date, templateName: template, exercises })}>
-          <Save size={16} /> Save this workout
-        </button>
-      </div>
+      ) : null}
+
+      {selectedProgram && viewDayIndex === mondayFirstDay ? (
+        <div className="panel">
+          <div className="panel-head">
+            <div><p className="eyebrow">Today's session</p><h2>{template || 'Rest day'}</h2></div>
+            <button className="secondary small" onClick={() => setExerciseModalOpen(true)}><Plus size={14} /> Add exercise</button>
+          </div>
+          {exercises.length ? (
+            <div className="exercise-list">
+              {exercises.map((exercise, exerciseIndex) => {
+                const isOpen = expandedExercises.has(exerciseIndex);
+                return (
+                  <div className={`exercise-card ${isOpen ? 'open' : ''}`} key={`${exercise.name}-${exerciseIndex}`}>
+                    <button className="exercise-card-head" onClick={() => toggleExpanded(exerciseIndex)}>
+                      <input className="exercise-name" value={exercise.name} onClick={(e) => e.stopPropagation()} onChange={(e) => setExercises(exercises.map((item, i) => i === exerciseIndex ? { ...item, name: e.target.value } : item))} />
+                      <span className="exercise-card-meta">{exercise.sets.length} {exercise.sets.length === 1 ? 'set' : 'sets'}</span>
+                      <ChevronDown className="exercise-card-chevron" size={16} aria-hidden="true" />
+                    </button>
+                    {isOpen ? (
+                      <div className="exercise-card-body">
+                        {exercise.sets.map((set, setIndex) => (
+                          <div className="set-line" key={setIndex}>
+                            <span>{setIndex + 1}</span>
+                            <input inputMode="decimal" value={set.weightKg || ''} onChange={(e) => updateSet(exerciseIndex, setIndex, 'weightKg', Number(e.target.value) || 0)} placeholder="kg" />
+                            <input inputMode="numeric" value={set.reps || ''} onChange={(e) => updateSet(exerciseIndex, setIndex, 'reps', Number(e.target.value) || 0)} placeholder="reps" />
+                            <button className="icon-only" onClick={() => setExercises(exercises.map((item, i) => i === exerciseIndex ? { ...item, sets: item.sets.filter((_, j) => j !== setIndex) } : item))}>x</button>
+                          </div>
+                        ))}
+                        <button className="text-button" onClick={() => setExercises(exercises.map((item, i) => i === exerciseIndex ? { ...item, sets: [...item.sets, { weightKg: 0, reps: 0 }] } : item))}>Add set</button>
+                      </div>
+                    ) : null}
+                  </div>
+                );
+              })}
+            </div>
+          ) : (!todaysProgramDayRaw || todaysProgramDayRaw.isRestDay) ? (
+            <Empty title="Rest day" text="Nothing scheduled for today. Add an exercise above if you're training anyway, or plan this day above." />
+          ) : (
+            <Empty title="Nothing added yet" text={`"${todaysProgramDayRaw.name}" is on today's plan but has no exercises yet. Add some above, or add them to the plan above.`} />
+          )}
+          {exercises.length ? (
+            <button className="primary" onClick={() => onSaveStrength({ id: session?.id || uid('strength'), date, templateName: template, exercises })}>
+              <Save size={16} /> Save this workout
+            </button>
+          ) : null}
+        </div>
+      ) : null}
 
       {exerciseModalOpen ? (
         <div className="sheet" role="dialog" aria-modal="true" aria-label="Add exercise">
@@ -1218,25 +1582,55 @@ function TrainingView({
             <div className="panel-head"><div><p className="eyebrow">New exercise</p><h2>What are you adding?</h2></div><button className="icon-only" onClick={() => setExerciseModalOpen(false)} aria-label="Close"><X size={17} /></button></div>
             <p className="hint">Anything you’re doing today, even if it’s not on the plan.</p>
             <label className="modal-field">Exercise name<input value={exerciseName} onChange={(e) => setExerciseName(e.target.value)} autoFocus onKeyDown={(e) => e.key === 'Enter' && addExercise()} placeholder="e.g. Cable fly" /></label>
-            <button className="primary" onClick={addExercise} disabled={!exerciseName.trim()}><Plus size={16} /> Add it</button>
+            {exerciseName.trim() ? (
+              <div className="exercise-search-results">
+                {allKnownExercises
+                  .filter((name) => name.toLowerCase().includes(exerciseName.trim().toLowerCase()) && !exercises.some((item) => item.name === name))
+                  .slice(0, 8)
+                  .map((name) => (
+                    <button key={name} onClick={() => addExercise(name)}>
+                      <Plus size={13} /> {name}
+                    </button>
+                  ))}
+              </div>
+            ) : null}
+            <button className="primary" onClick={() => addExercise()} disabled={!exerciseName.trim()}><Plus size={16} /> Add "{exerciseName.trim()}" as custom</button>
           </div>
         </div>
       ) : null}
 
-      {programModalOpen ? (
-        <div className="sheet" role="dialog" aria-modal="true" aria-label="Set up your week">
-          <div className="panel modal-card program-builder">
-            <div className="panel-head"><div><p className="eyebrow">Your week</p><h2>Set up your week</h2></div><button className="icon-only" onClick={() => setProgramModalOpen(false)} aria-label="Close"><X size={17} /></button></div>
-            <label className="modal-field">Program name<input value={programDraft.name} onChange={(event) => setProgramDraft({ ...programDraft, name: event.target.value })} placeholder="e.g. Five day PPL" /></label>
-            <div className="builder-week"><p className="eyebrow">Tap the days you train</p><div>{weekDays.map((day, index) => { const planned = programDraft.days.find((item) => item.weekday === index); return <button key={day.label} className={planned?.id === editingDay?.id ? 'active' : planned ? 'planned' : ''} onClick={() => addProgramDay(index)}><span>{day.label}</span><small>{planned ? planned.name : '+'}</small></button>; })}</div></div>
-            {editingDay ? <div className="builder-day">
-              <div className="builder-day-head"><p className="eyebrow">{weekDays[editingDay.weekday].full}</p><button className="text-button" onClick={() => { setProgramDraft({ ...programDraft, days: programDraft.days.filter((day) => day.id !== editingDay.id) }); setEditingDayId(''); }}>Remove day</button></div>
-              <label>Session name<input value={editingDay.name} onChange={(event) => updateProgramDay(editingDay.id, { name: event.target.value })} placeholder="Push, pull, legs..." /></label>
-              <div className="template-pills">{Object.keys(templateSeeds).map((name) => <button key={name} onClick={() => useTemplateInProgram(name)}>Use {name}</button>)}</div>
-              <div className="program-exercise-list">{editingDay.exercises.length ? editingDay.exercises.map((name, index) => <div key={`${name}-${index}`}><span>{index + 1}</span><input value={name} onChange={(event) => updateProgramDay(editingDay.id, { exercises: editingDay.exercises.map((item, itemIndex) => itemIndex === index ? event.target.value : item) })} /><button className="icon-only" onClick={() => updateProgramDay(editingDay.id, { exercises: editingDay.exercises.filter((_, itemIndex) => itemIndex !== index) })} aria-label={`Remove ${name}`}><X size={15} /></button></div>) : <p className="hint">Pick a template above, or type your own exercises in.</p>}</div>
-              <div className="add-program-exercise"><input value={programExercise} onChange={(event) => setProgramExercise(event.target.value)} onKeyDown={(event) => event.key === 'Enter' && addProgramExercise()} placeholder="Add an exercise" /><button className="secondary small" onClick={addProgramExercise} disabled={!programExercise.trim()}><Plus size={14} /> Add</button></div>
-            </div> : <div className="builder-empty"><strong>Pick a day to get started.</strong><p>Tap any day you train. Leave the rest alone — those are your rest days.</p></div>}
-            <button className="primary" onClick={saveProgramDraft} disabled={!programDraft.name.trim() || !programDraft.days.some((day) => day.exercises.length)}><Save size={16} /> Save it</button>
+      {programsSheetOpen ? (
+        <div className="sheet" role="dialog" aria-modal="true" aria-label="Programs">
+          <div className="panel modal-card">
+            <div className="panel-head"><div><p className="eyebrow">Your programs</p><h2>Switch or create</h2></div><button className="icon-only" onClick={() => setProgramsSheetOpen(false)} aria-label="Close"><X size={17} /></button></div>
+            {programs.length ? (
+              <div className="programs-list">
+                {programs.map((program) => (
+                  <div key={program.id} className={`programs-list-row ${program.id === selectedProgram?.id ? 'active' : ''}`}>
+                    <button className="programs-list-select" onClick={() => { setSelectedProgramId(program.id); setProgramsSheetOpen(false); }}>
+                      <strong>{program.name}</strong>
+                      <small>{program.days.length} day{program.days.length === 1 ? '' : 's'} planned</small>
+                    </button>
+                    <button className="icon-only" onClick={() => requestDeleteProgram(program)} aria-label={`Delete ${program.name}`}><Trash2 size={15} /></button>
+                  </div>
+                ))}
+              </div>
+            ) : <p className="hint">No programs yet — create your first one below.</p>}
+            <label className="modal-field">New program name<input value={newProgramName} onChange={(e) => setNewProgramName(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && createProgram()} placeholder="e.g. Five day PPL" /></label>
+            <button className="primary" onClick={createProgram} disabled={!newProgramName.trim()}><Plus size={16} /> Create program</button>
+          </div>
+        </div>
+      ) : null}
+
+      {confirmTarget ? (
+        <div className="sheet" role="alertdialog" aria-modal="true" aria-label="Confirm">
+          <div className="panel modal-card confirm-card">
+            <h2>Are you sure?</h2>
+            <p className="hint">{confirmTarget.text}</p>
+            <div className="confirm-actions">
+              <button className="secondary" onClick={() => setConfirmTarget(null)}>Cancel</button>
+              <button className="danger-button" onClick={() => { confirmTarget.onConfirm(); setConfirmTarget(null); }}><Trash2 size={15} /> Remove</button>
+            </div>
           </div>
         </div>
       ) : null}

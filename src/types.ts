@@ -103,6 +103,7 @@ export type ProgramDay = {
   weekday: number;
   name: string;
   exercises: string[];
+  isRestDay?: boolean;
 };
 
 export type TrainingProgram = {

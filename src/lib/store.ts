@@ -12,8 +12,8 @@ import type {
 
 const prefix = 'ateform:';
 
-export function uid(prefixValue = 'id') {
-  return `${prefixValue}-${randomUUID()}`;
+export function uid(_prefixValue = 'id') {
+  return randomUUID();
 }
 
 function randomUUID() {
