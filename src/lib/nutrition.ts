@@ -184,6 +184,103 @@ export const seedFoods: Food[] = [
     servingUnit: '1 tbsp',
     servingGrams: 13.5,
     nutrientsPer100g: { calories: 884, protein: 0, carbs: 0, fat: 100 }
+  },
+  {
+    id: 'seed-jaouda-yaourt-nature',
+    source: 'seed',
+    name: 'Yaourt nature',
+    brand: 'Jaouda',
+    servingUnit: '1 pot (100 g)',
+    servingGrams: 100,
+    nutrientsPer100g: { calories: 62, protein: 3.5, carbs: 4.7, fat: 3.2, calciumMg: 120 }
+  },
+  {
+    id: 'seed-jaouda-yaourt-proteine',
+    source: 'seed',
+    name: 'Yaourt Protéiné',
+    brand: 'Jaouda',
+    servingUnit: '1 pot (100 g)',
+    servingGrams: 100,
+    nutrientsPer100g: { calories: 70, protein: 8, carbs: 5, fat: 1.5, calciumMg: 130 }
+  },
+  {
+    id: 'seed-jaouda-lait-demi-ecreme',
+    source: 'seed',
+    name: 'Lait demi-écrémé UHT',
+    brand: 'Jaouda',
+    servingUnit: '100 ml',
+    servingGrams: 100,
+    nutrientsPer100g: { calories: 46, protein: 3.2, carbs: 4.8, fat: 1.5, calciumMg: 118 }
+  },
+  {
+    id: 'seed-perli-yaourt-nature',
+    source: 'seed',
+    name: 'Yaourt nature',
+    brand: 'Pérli',
+    servingUnit: '1 pot (100 g)',
+    servingGrams: 100,
+    nutrientsPer100g: { calories: 60, protein: 3.4, carbs: 4.5, fat: 3.3, calciumMg: 118 }
+  },
+  {
+    id: 'seed-perli-yaourt-fruits',
+    source: 'seed',
+    name: 'Yaourt aux fruits',
+    brand: 'Pérli',
+    servingUnit: '1 pot (100 g)',
+    servingGrams: 100,
+    nutrientsPer100g: { calories: 95, protein: 3, carbs: 16, fat: 2.2, calciumMg: 100 }
+  },
+  {
+    id: 'seed-raibi-jamila',
+    source: 'seed',
+    name: 'Raibi Jamila',
+    brand: 'Centrale Danone',
+    servingUnit: '1 bottle (100 ml)',
+    servingGrams: 100,
+    nutrientsPer100g: { calories: 78, protein: 2.6, carbs: 13, fat: 1.8, calciumMg: 90 }
+  },
+  {
+    id: 'seed-danone-activia',
+    source: 'seed',
+    name: 'Activia nature',
+    brand: 'Danone',
+    servingUnit: '1 pot (100 g)',
+    servingGrams: 100,
+    nutrientsPer100g: { calories: 65, protein: 3.5, carbs: 6.5, fat: 3, calciumMg: 125 }
+  },
+  {
+    id: 'seed-vache-qui-rit',
+    source: 'seed',
+    name: 'La Vache qui rit (portion)',
+    brand: 'Bel Maroc',
+    servingUnit: '1 portion (16.7 g)',
+    servingGrams: 16.7,
+    nutrientsPer100g: { calories: 280, protein: 8, carbs: 4, fat: 24, calciumMg: 400, sodiumMg: 780 }
+  },
+  {
+    id: 'seed-kiri',
+    source: 'seed',
+    name: 'Kiri, fromage fondu',
+    brand: 'Kiri',
+    servingUnit: '1 portion (18 g)',
+    servingGrams: 18,
+    nutrientsPer100g: { calories: 260, protein: 8.5, carbs: 3, fat: 23, calciumMg: 350 }
+  },
+  {
+    id: 'seed-jben',
+    source: 'seed',
+    name: 'Jben, Moroccan fresh cheese',
+    servingUnit: '100 g',
+    servingGrams: 100,
+    nutrientsPer100g: { calories: 98, protein: 11, carbs: 3, fat: 4.5, calciumMg: 90 }
+  },
+  {
+    id: 'seed-chergui-cheese',
+    source: 'seed',
+    name: 'Fromage Chergui',
+    servingUnit: '100 g',
+    servingGrams: 100,
+    nutrientsPer100g: { calories: 264, protein: 14, carbs: 4, fat: 21, calciumMg: 520, sodiumMg: 620 }
   }
 ];
 

@@ -1,6 +1,6 @@
 # Ateform
 
-Mobile-first food, training, body metric, and progress photo tracker.
+Mobile-first nutrition and fitness tracker with four primary areas: Today, Food, Training, and Body & Progress.
 
 ## Local development
 
@@ -48,3 +48,9 @@ npm run build
 ```
 
 For Hostinger, use **Deploy Web App**, connect this repo, set build command `npm run build`, output directory `dist`, and add the same `VITE_` environment variables.
+
+## AI and MCP integration
+
+The authenticated remote MCP server lives in [`mcp-server`](./mcp-server). It lets an AI client read the user's current data and log user-approved meals, workouts, cardio, and body measurements. The AI client performs image understanding; Ateform receives structured nutrition values and stores the original AI provenance and confidence.
+
+Before deploying it, apply all Supabase migrations and enable the Supabase OAuth 2.1 server. See [`mcp-server/README.md`](./mcp-server/README.md) for configuration, security behavior, supported tools, and connection instructions.

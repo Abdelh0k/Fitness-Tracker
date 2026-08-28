@@ -22,6 +22,7 @@ import {
   Loader2,
   LogOut,
   Milk,
+  Pencil,
   Plus,
   Save,
   Search,
@@ -33,16 +34,19 @@ import {
   X
 } from 'lucide-react';
 import { calculateTargets, defaultProfile, mealTypes, scaleNutrients, seedFoods, sumNutrients } from './lib/nutrition';
+import { cardioMachineLabels, cyclingEffortLevels, estimateCardioCalories, rowingEffortLevels, type CyclingEffort, type RowingEffort } from './lib/cardioCalories';
 import { hasSupabaseConfig, supabase } from './lib/supabase';
 import Onboarding from './Onboarding';
 import { loadLocal, prettyDate, saveLocal, todayKey, uid, type LocalState } from './lib/store';
 import type {
   BodyMetric,
   CardioEntry,
+  CardioMachine,
   Food,
   MealEntry,
   MealType,
   ProgressPhoto,
+  SavedCardioSession,
   SavedMeal,
   StepEntry,
   StrengthExercise,
@@ -52,7 +56,7 @@ import type {
   UserProfile
 } from './types';
 
-type Tab = 'today' | 'food' | 'training' | 'cardio' | 'progress' | 'profile';
+type Tab = 'today' | 'food' | 'training' | 'progress' | 'profile';
 type ProgressRange = 'week' | 'month';
 
 const templateSeeds: Record<string, string[]> = {
@@ -283,6 +287,7 @@ const initialState: LocalState = {
   strength: [],
   programs: [],
   cardio: [],
+  savedCardioSessions: [],
   steps: [],
   body: [],
   photos: []
@@ -313,7 +318,7 @@ export default function App() {
   const [date, setDate] = useState(todayKey());
   const [state, setState] = useState<LocalState>(() => {
     const saved = loadLocal<Partial<LocalState>>('state', initialState);
-    return { ...initialState, ...saved, programs: saved.programs || [] };
+    return { ...initialState, ...saved, programs: saved.programs || [], savedCardioSessions: saved.savedCardioSessions || [] };
   });
   const [session, setSession] = useState<Session | null>(null);
   const [remoteLoading, setRemoteLoading] = useState(false);
@@ -332,8 +337,7 @@ export default function App() {
     today: 'Today',
     food: 'Food',
     training: 'Training',
-    cardio: 'Cardio',
-    progress: 'Progress',
+    progress: 'Body & progress',
     profile: 'Your setup'
   };
   const firstName = state.profile.name.trim().split(/\s+/)[0] || 'there';
@@ -367,6 +371,10 @@ export default function App() {
     window.setTimeout(() => setToast(''), 1800);
   }
 
+  function goTo(nextTab: Tab) {
+    setTab(nextTab);
+  }
+
   /**
    * Supabase hands back errors rather than throwing, so an unchecked write fails
    * silently: local state updates, the next reload quietly reverts it. Returns true
@@ -384,13 +392,14 @@ export default function App() {
     const client = supabase;
     setRemoteLoading(true);
     try {
-      const [profileRes, mealsRes, savedRes, strengthRes, programsRes, cardioRes, stepsRes, bodyRes, photosRes] = await Promise.all([
+      const [profileRes, mealsRes, savedRes, strengthRes, programsRes, cardioRes, savedCardioRes, stepsRes, bodyRes, photosRes] = await Promise.all([
         client.from('profiles').select('*').eq('id', userId).maybeSingle(),
         client.from('meal_entries').select('*').eq('user_id', userId).order('log_date', { ascending: false }),
         client.from('saved_meals').select('*').eq('user_id', userId),
         client.from('strength_sessions').select('*').eq('user_id', userId).order('log_date', { ascending: false }),
         client.from('training_programs').select('*').eq('user_id', userId).order('updated_at', { ascending: false }),
         client.from('cardio_entries').select('*').eq('user_id', userId).order('log_date', { ascending: false }),
+        client.from('saved_cardio_sessions').select('*').eq('user_id', userId).order('updated_at', { ascending: false }),
         client.from('step_entries').select('*').eq('user_id', userId).order('log_date', { ascending: false }),
         client.from('body_metrics').select('*').eq('user_id', userId).order('log_date', { ascending: false }),
         client.from('progress_photos').select('*').eq('user_id', userId).order('log_date', { ascending: false })
@@ -430,7 +439,23 @@ export default function App() {
           type: row.type,
           durationMin: row.duration_min,
           distanceKm: row.distance_km || undefined,
-          calories: row.calories || undefined
+          calories: row.calories || undefined,
+          machine: row.machine || undefined,
+          speedKmh: row.speed_kmh || undefined,
+          inclinePercent: row.incline_percent ?? undefined,
+          watts: row.watts || undefined,
+          stepRate: row.step_rate || undefined
+        })),
+        savedCardioSessions: (savedCardioRes.data || []).map((row: any) => ({
+          id: row.id,
+          name: row.name,
+          machine: row.machine,
+          durationMin: row.duration_min || undefined,
+          distanceKm: row.distance_km || undefined,
+          speedKmh: row.speed_kmh || undefined,
+          inclinePercent: row.incline_percent ?? undefined,
+          watts: row.watts || undefined,
+          stepRate: row.step_rate || undefined
         })),
         steps: (stepsRes.data || []).map((row: any) => ({ id: row.id, date: row.log_date, steps: row.steps })),
         body: (bodyRes.data || []).map((row: any) => ({
@@ -457,13 +482,14 @@ export default function App() {
     flash('Saved');
   }
 
-  async function addMeal(entry: MealEntry) {
-    commit({ ...state, meals: [entry, ...state.meals] });
+  async function addMealEntries(entries: MealEntry[]) {
+    if (!entries.length) return;
+    commit({ ...state, meals: [...entries, ...state.meals] });
     if (supabase && session && !localMode) {
-      const { error } = await supabase.from('meal_entries').insert(mealToRow(entry, session.user.id));
+      const { error } = await supabase.from('meal_entries').insert(entries.map((entry) => mealToRow(entry, session.user.id)));
       if (failed('food', error)) return;
     }
-    flash('Added');
+    flash('Meal logged');
   }
 
   async function deleteMeal(id: string) {
@@ -484,22 +510,27 @@ export default function App() {
     flash('Meal saved');
   }
 
+  async function deleteSavedMeal(id: string) {
+    commit({ ...state, savedMeals: state.savedMeals.filter((item) => item.id !== id) });
+    if (supabase && session && !localMode) {
+      const { error } = await supabase.from('saved_meals').delete().eq('id', id);
+      failed('change', error);
+    }
+  }
+
   async function logSavedMeal(savedMeal: SavedMeal, mealType: MealType) {
+    const mealSessionId = uid('meal-session');
     const entries = savedMeal.items.map<MealEntry>((item) => ({
       id: uid('meal'),
       date,
       mealType,
+      mealSessionId,
       food: item.food,
       grams: item.grams,
       nutrients: scaleNutrients(item.food.nutrientsPer100g, item.grams),
       createdAt: new Date().toISOString()
     }));
-    commit({ ...state, meals: [...entries, ...state.meals] });
-    if (supabase && session && !localMode) {
-      const { error } = await supabase.from('meal_entries').insert(entries.map((entry) => mealToRow(entry, session.user.id)));
-      if (failed('food', error)) return;
-    }
-    flash('Added');
+    await addMealEntries(entries);
   }
 
   async function saveStrength(sessionEntry: StrengthSession) {
@@ -547,11 +578,45 @@ export default function App() {
         type: entry.type,
         duration_min: entry.durationMin,
         distance_km: entry.distanceKm || null,
-        calories: entry.calories || null
+        calories: entry.calories || null,
+        machine: entry.machine || null,
+        speed_kmh: entry.speedKmh || null,
+        incline_percent: entry.inclinePercent ?? null,
+        watts: entry.watts || null,
+        step_rate: entry.stepRate || null
       });
       if (failed('cardio', error)) return;
     }
     flash('Cardio added');
+  }
+
+  async function saveCardioSession(entry: SavedCardioSession) {
+    const savedCardioSessions = [entry, ...state.savedCardioSessions.filter((item) => item.id !== entry.id)];
+    commit({ ...state, savedCardioSessions });
+    if (supabase && session && !localMode) {
+      const { error } = await supabase.from('saved_cardio_sessions').upsert({
+        id: entry.id,
+        user_id: session.user.id,
+        name: entry.name,
+        machine: entry.machine,
+        duration_min: entry.durationMin || null,
+        distance_km: entry.distanceKm || null,
+        speed_kmh: entry.speedKmh || null,
+        incline_percent: entry.inclinePercent ?? null,
+        watts: entry.watts || null,
+        step_rate: entry.stepRate || null
+      });
+      if (failed('cardio session', error)) return;
+    }
+    flash('Session saved');
+  }
+
+  async function deleteCardioSession(id: string) {
+    commit({ ...state, savedCardioSessions: state.savedCardioSessions.filter((item) => item.id !== id) });
+    if (supabase && session && !localMode) {
+      const { error } = await supabase.from('saved_cardio_sessions').delete().eq('id', id);
+      failed('change', error);
+    }
   }
 
   async function saveSteps(steps: number) {
@@ -639,10 +704,16 @@ export default function App() {
           <h1>{pageTitles[tab]}</h1>
         </div>
         <div className="topbar-actions">
-          <DateNav date={date} setDate={setDate} />
-          <div className="profile-chip" title={localMode ? 'Just on this device' : session?.user.email}>
-            {firstName.slice(0, 1).toUpperCase()}
-          </div>
+          {tab !== 'profile' ? <DateNav date={date} setDate={setDate} /> : null}
+          <button
+            className={`header-settings ${tab === 'profile' ? 'active' : ''}`}
+            title={localMode ? 'Profile and settings · just on this device' : `Profile and settings · ${session?.user.email || ''}`}
+            aria-label="Open profile and settings"
+            aria-pressed={tab === 'profile'}
+            onClick={() => goTo('profile')}
+          >
+            <Settings size={18} />
+          </button>
         </div>
       </header>
 
@@ -671,39 +742,46 @@ export default function App() {
               steps: state.steps,
               body: state.body
             }}
-            onGo={setTab}
+            onGo={goTo}
           />
         ) : null}
         {tab === 'food' ? (
           <FoodView
             date={date}
+            onSelectDate={setDate}
             meals={todaysMeals}
+            allMeals={state.meals}
             savedMeals={state.savedMeals}
-            onAdd={addMeal}
+            onAddMeal={addMealEntries}
             onDelete={deleteMeal}
             onSaveMeal={saveMeal}
+            onDeleteSavedMeal={deleteSavedMeal}
             onLogSavedMeal={logSavedMeal}
             remoteEnabled={Boolean(supabase && session && !localMode)}
           />
         ) : null}
         {tab === 'training' ? (
-          <TrainingView
-            date={date}
-            session={todaysStrength}
-            programs={state.programs}
-            onSaveStrength={saveStrength}
-            onSaveProgram={saveProgram}
-            onDeleteProgram={deleteProgram}
-          />
-        ) : null}
-        {tab === 'cardio' ? (
-          <CardioView
-            date={date}
-            cardio={todaysCardio}
-            steps={todaysSteps}
-            onSaveCardio={saveCardio}
-            onSaveSteps={saveSteps}
-          />
+          <section className="stack view training-hub-view">
+            <TrainingView
+              date={date}
+              session={todaysStrength}
+              programs={state.programs}
+              onSaveStrength={saveStrength}
+              onSaveProgram={saveProgram}
+              onDeleteProgram={deleteProgram}
+            />
+            <CardioView
+              date={date}
+              cardio={todaysCardio}
+              steps={todaysSteps}
+              weightKg={state.profile.currentWeightKg}
+              savedSessions={state.savedCardioSessions}
+              onSaveCardio={saveCardio}
+              onSaveSteps={saveSteps}
+              onSaveCardioSession={saveCardioSession}
+              onDeleteCardioSession={deleteCardioSession}
+            />
+          </section>
         ) : null}
         {tab === 'progress' ? (
           <ProgressView
@@ -732,12 +810,10 @@ export default function App() {
 
       <nav className="tabbar">
         <div className="nav-brand" aria-label="Ateform"><div className="brand-mark">A</div><span>Ateform</span></div>
-        <TabButton active={tab === 'today'} icon={<Home />} label="Today" onClick={() => setTab('today')} />
-        <TabButton active={tab === 'food'} icon={<Utensils />} label="Food" onClick={() => setTab('food')} />
-        <TabButton active={tab === 'training'} icon={<Dumbbell />} label="Train" onClick={() => setTab('training')} />
-        <TabButton active={tab === 'cardio'} icon={<Activity />} label="Cardio" onClick={() => setTab('cardio')} />
-        <TabButton active={tab === 'progress'} icon={<Weight />} label="Progress" onClick={() => setTab('progress')} />
-        <TabButton active={tab === 'profile'} icon={<Settings />} label="Profile" onClick={() => setTab('profile')} />
+        <TabButton active={tab === 'today'} icon={<Home />} label="Today" onClick={() => goTo('today')} />
+        <TabButton active={tab === 'food'} icon={<Utensils />} label="Food" onClick={() => goTo('food')} />
+        <TabButton active={tab === 'training'} icon={<Dumbbell />} label="Training" onClick={() => goTo('training')} />
+        <TabButton active={tab === 'progress'} icon={<Weight />} label="Progress" onClick={() => goTo('progress')} />
       </nav>
 
       {toast ? <div className="toast">{toast}</div> : null}
@@ -990,7 +1066,7 @@ function TodayView({
             </span>
             <span className="activity-value"><b>{sets}</b><i>sets</i></span>
           </button>
-          <button className={`activity-row ${cardioMinutes ? 'done' : ''}`} onClick={() => onGo('cardio')}>
+          <button className={`activity-row ${cardioMinutes ? 'done' : ''}`} onClick={() => onGo('training')}>
             <span className="activity-icon"><Flame size={17} /></span>
             <span className="activity-copy">
               <strong>Cardio</strong>
@@ -1002,7 +1078,7 @@ function TodayView({
             </span>
             <span className="activity-value"><b>{cardioMinutes}</b><i>min</i></span>
           </button>
-          <button className={`activity-row ${steps >= profile.dailyStepsTarget && steps > 0 ? 'done' : ''}`} onClick={() => onGo('cardio')}>
+          <button className={`activity-row ${steps >= profile.dailyStepsTarget && steps > 0 ? 'done' : ''}`} onClick={() => onGo('training')}>
             <span className="activity-icon"><Footprints size={17} /></span>
             <span className="activity-copy">
               <strong>Steps</strong>
@@ -1050,53 +1126,154 @@ function TodayView({
 
 function FoodView({
   date,
+  onSelectDate,
   meals,
+  allMeals,
   savedMeals,
-  onAdd,
+  onAddMeal,
   onDelete,
   onSaveMeal,
+  onDeleteSavedMeal,
   onLogSavedMeal,
   remoteEnabled
 }: {
   date: string;
+  onSelectDate: (date: string) => void;
   meals: MealEntry[];
+  allMeals: MealEntry[];
   savedMeals: SavedMeal[];
-  onAdd: (entry: MealEntry) => Promise<void>;
+  onAddMeal: (entries: MealEntry[]) => Promise<void>;
   onDelete: (id: string) => Promise<void>;
   onSaveMeal: (meal: SavedMeal) => Promise<void>;
+  onDeleteSavedMeal: (id: string) => Promise<void>;
   onLogSavedMeal: (meal: SavedMeal, type: MealType) => Promise<void>;
   remoteEnabled: boolean;
 }) {
+  const weekDates = useMemo(() => rangeDays(date, 'week'), [date]);
+  const dayStatsByDay = useMemo(() => {
+    const map = new Map<string, { calories: number; sessionIds: Set<string> }>();
+    for (const entry of allMeals) {
+      const current = map.get(entry.date) || { calories: 0, sessionIds: new Set<string>() };
+      current.calories += entry.nutrients.calories;
+      current.sessionIds.add(entry.mealSessionId);
+      map.set(entry.date, current);
+    }
+    return map;
+  }, [allMeals]);
+
+  const mealGroups = useMemo(() => {
+    const map = new Map<string, MealEntry[]>();
+    for (const entry of meals) {
+      if (!map.has(entry.mealSessionId)) map.set(entry.mealSessionId, []);
+      map.get(entry.mealSessionId)!.push(entry);
+    }
+    return Array.from(map.values())
+      .map((entries) => ({ entries, totals: sumNutrients(entries) }))
+      .sort((a, b) => (a.entries[0].createdAt < b.entries[0].createdAt ? 1 : -1));
+  }, [meals]);
+
   const [query, setQuery] = useState('');
-  const [results, setResults] = useState<Food[]>(seedFoods);
-  const [selected, setSelected] = useState<Food | null>(null);
-  const [grams, setGrams] = useState(100);
-  const [mealType, setMealType] = useState<MealType>('lunch');
+  const [results, setResults] = useState<Food[]>([]);
   const [busy, setBusy] = useState(false);
-  const [saveMealOpen, setSaveMealOpen] = useState(false);
-  const [savedMealName, setSavedMealName] = useState('');
+  const [mealType, setMealType] = useState<MealType>('lunch');
+  const [mealStarted, setMealStarted] = useState(false);
+  const [draftItems, setDraftItems] = useState<Array<{ food: Food; grams: number }>>([]);
+  const [saveAsTemplate, setSaveAsTemplate] = useState(false);
+  const [templateName, setTemplateName] = useState('');
+  const [editingSavedMealId, setEditingSavedMealId] = useState<string | null>(null);
   const [custom, setCustom] = useState({ name: '', calories: '', protein: '', carbs: '', fat: '' });
+  const [customModalOpen, setCustomModalOpen] = useState(false);
+  const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set());
+  const [savingGroup, setSavingGroup] = useState<{ sessionId: string; items: Array<{ food: Food; grams: number }> } | null>(null);
+  const [groupSaveName, setGroupSaveName] = useState('');
+  const [confirmTarget, setConfirmTarget] = useState<{ text: string; onConfirm: () => void } | null>(null);
   const totals = sumNutrients(meals);
+  const draftTotals = sumNutrients(draftItems.map((item) => ({ nutrients: scaleNutrients(item.food.nutrientsPer100g, item.grams) })));
 
   async function search() {
     const q = query.trim();
     if (!q) {
-      setResults(seedFoods);
+      setResults([]);
       return;
     }
     setBusy(true);
     try {
+      const localMatches = seedFoods.filter((food) => food.name.toLowerCase().includes(q.toLowerCase()) || food.brand?.toLowerCase().includes(q.toLowerCase()));
       if (supabase && remoteEnabled) {
         const { data, error } = await supabase.functions.invoke('food-search', { body: { query: q } });
         if (!error && Array.isArray(data?.foods)) {
-          setResults(data.foods);
+          setResults(dedupeFoods([...localMatches, ...data.foods]));
           return;
         }
       }
-      setResults(seedFoods.filter((food) => food.name.toLowerCase().includes(q.toLowerCase())));
+      setResults(localMatches);
     } finally {
       setBusy(false);
     }
+  }
+
+  function addDraftItem(food: Food) {
+    setDraftItems([...draftItems, { food, grams: defaultServingGrams(food) }]);
+  }
+
+  function updateDraftGrams(index: number, grams: number) {
+    setDraftItems(draftItems.map((item, i) => i === index ? { ...item, grams } : item));
+  }
+
+  function removeDraftItem(index: number) {
+    setDraftItems(draftItems.filter((_, i) => i !== index));
+  }
+
+  function cancelMeal() {
+    setDraftItems([]);
+    setSaveAsTemplate(false);
+    setTemplateName('');
+    setEditingSavedMealId(null);
+    setQuery('');
+    setResults([]);
+    setMealStarted(false);
+  }
+
+  function toggleGroupExpanded(sessionId: string) {
+    setExpandedGroups((current) => {
+      const next = new Set(current);
+      if (next.has(sessionId)) next.delete(sessionId); else next.add(sessionId);
+      return next;
+    });
+  }
+
+  function saveLoggedMealAsTemplate() {
+    if (!savingGroup || !groupSaveName.trim()) return;
+    void onSaveMeal({ id: uid('saved'), name: groupSaveName.trim(), items: savingGroup.items });
+    setSavingGroup(null);
+    setGroupSaveName('');
+  }
+
+  function requestDeleteGroup(mealType: string, entryIds: string[]) {
+    setConfirmTarget({
+      text: `Remove this ${mealType} (${entryIds.length} item${entryIds.length === 1 ? '' : 's'})? This can't be undone.`,
+      onConfirm: () => entryIds.forEach((id) => void onDelete(id))
+    });
+  }
+
+  function requestDeleteSavedMeal(meal: SavedMeal) {
+    setConfirmTarget({
+      text: `Delete "${meal.name}"? This can't be undone.`,
+      onConfirm: () => void onDeleteSavedMeal(meal.id)
+    });
+  }
+
+  function startEditSavedMeal(meal: SavedMeal) {
+    setDraftItems(meal.items.map((item) => ({ food: item.food, grams: item.grams })));
+    setTemplateName(meal.name);
+    setEditingSavedMealId(meal.id);
+    setMealStarted(true);
+  }
+
+  function saveEditedMeal() {
+    if (!editingSavedMealId || !templateName.trim() || !draftItems.length) return;
+    void onSaveMeal({ id: editingSavedMealId, name: templateName.trim(), items: draftItems.map((item) => ({ food: item.food, grams: item.grams })) });
+    cancelMeal();
   }
 
   function addCustomFood() {
@@ -1114,127 +1291,238 @@ function FoodView({
         fat: Number(custom.fat) || 0
       }
     };
-    setResults([food, ...results]);
-    setSelected(food);
+    addDraftItem(food);
     setCustom({ name: '', calories: '', protein: '', carbs: '', fat: '' });
+    setCustomModalOpen(false);
   }
 
-  async function addSelected() {
-    if (!selected) return;
-    await onAdd({
+  async function logMeal() {
+    if (!draftItems.length) return;
+    const mealSessionId = uid('meal-session');
+    const entries = draftItems.map<MealEntry>((item) => ({
       id: uid('meal'),
       date,
       mealType,
-      food: selected,
-      grams,
-      nutrients: scaleNutrients(selected.nutrientsPer100g, grams),
+      mealSessionId,
+      food: item.food,
+      grams: item.grams,
+      nutrients: scaleNutrients(item.food.nutrientsPer100g, item.grams),
       createdAt: new Date().toISOString()
-    });
-    setSelected(null);
-  }
-
-  function saveCurrentMeal() {
-    const name = savedMealName.trim();
-    if (!name || meals.length === 0) return;
-    void onSaveMeal({
-      id: uid('saved'),
-      name,
-      items: meals.map((entry) => ({ food: entry.food, grams: entry.grams }))
-    });
-    setSavedMealName('');
-    setSaveMealOpen(false);
+    }));
+    await onAddMeal(entries);
+    if (saveAsTemplate && templateName.trim()) {
+      void onSaveMeal({ id: uid('saved'), name: templateName.trim(), items: draftItems.map((item) => ({ food: item.food, grams: item.grams })) });
+    }
+    cancelMeal();
   }
 
   return (
     <section className="stack view food-view">
-      <div className="panel food-intro">
-        <div>
-          <p className="eyebrow">Food</p>
-          <h2>What did you eat?</h2>
-          <p className="hint">Search for it, say how much you had, and we’ll work out the rest.</p>
+      <div className="panel program-overview">
+        <div className="panel-head">
+          <p className="eyebrow">Your week</p>
         </div>
-        <Apple size={30} aria-hidden="true" />
-      </div>
-
-      <div className="panel search-panel">
-        <div className="search-line">
-          <Search size={18} />
-          <input value={query} onChange={(e) => setQuery(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && search()} placeholder="Search chicken, rice, yogurt..." />
-          <button className="secondary small" onClick={search}>{busy ? <Loader2 className="spin" size={15} /> : 'Search'}</button>
-        </div>
-        <p className="hint">{remoteEnabled ? 'Searching USDA and Open Food Facts.' : 'Offline list for now — add your Supabase keys for the full food database.'}</p>
-      </div>
-
-      <div className="section-title"><div><p className="eyebrow">Browse</p><h2>{query ? 'What we found' : 'Common foods'}</h2></div><span>{results.length} foods</span></div>
-      <div className="food-list">
-        {results.map((food) => {
-          const { Icon, tint } = foodCategory(food.name);
-          return (
-            <button className="food-result" key={food.id} onClick={() => { setSelected(food); setGrams(food.servingGrams || 100); }}>
-              <span className="food-avatar" style={{ background: tint }}><Icon size={18} aria-hidden="true" /></span>
-              <span className="food-result-copy">
-                <strong>{food.name}</strong>
-                <span>{food.brand || food.source} · 100g</span>
-              </span>
-              <MacroMini nutrients={food.nutrientsPer100g} />
-              <span className="food-add" aria-hidden="true"><Plus size={16} /></span>
-            </button>
-          );
-        })}
-      </div>
-
-      <div className="panel">
-        <h2>Can’t find it? Add it yourself</h2>
-        <div className="grid two">
-          <input value={custom.name} onChange={(e) => setCustom({ ...custom, name: e.target.value })} placeholder="What is it?" />
-          <input value={custom.calories} onChange={(e) => setCustom({ ...custom, calories: e.target.value })} inputMode="decimal" placeholder="kcal / 100g" />
-          <input value={custom.protein} onChange={(e) => setCustom({ ...custom, protein: e.target.value })} inputMode="decimal" placeholder="protein" />
-          <input value={custom.carbs} onChange={(e) => setCustom({ ...custom, carbs: e.target.value })} inputMode="decimal" placeholder="carbs" />
-          <input value={custom.fat} onChange={(e) => setCustom({ ...custom, fat: e.target.value })} inputMode="decimal" placeholder="fat" />
-          <button className="secondary" onClick={addCustomFood}>Add it</button>
+        <div className="program-days">
+          {weekDates.map((day, index) => {
+            const stats = dayStatsByDay.get(day);
+            return (
+              <button type="button" key={day} className={`program-day ${day === todayKey() ? 'today' : ''} ${day === date ? 'viewing' : ''}`} onClick={() => onSelectDate(day)}>
+                <span>{weekDays[index].label}</span>
+                <strong>{new Date(`${day}T00:00:00`).getDate()}</strong>
+                <small>{stats ? `${stats.sessionIds.size} meal${stats.sessionIds.size === 1 ? '' : 's'} · ${Math.round(stats.calories)} kcal` : 'Nothing logged'}</small>
+              </button>
+            );
+          })}
         </div>
       </div>
 
-      {selected ? (
-        <div className="sheet" role="dialog" aria-modal="true" aria-label={`Add ${selected.name}`}>
-          <div className="panel modal-card food-log-modal">
-            <div className="panel-head">
-              <div><p className="eyebrow">{selected.brand || selected.source}</p><h2>{selected.name}</h2></div>
-              <button className="icon-only" onClick={() => setSelected(null)} aria-label="Close"><X size={17} /></button>
+      <div className="panel food-workspace">
+        <div className="panel-head">
+          <div><p className="eyebrow">Food</p><h2>{editingSavedMealId ? 'Editing saved meal' : 'Today'}</h2></div>
+          {mealStarted && !editingSavedMealId ? <select className="meal-type-select" value={mealType} onChange={(e) => setMealType(e.target.value as MealType)}>{mealTypes.map((type) => <option key={type}>{type}</option>)}</select> : null}
+        </div>
+
+        {!mealStarted ? (
+          <button className="primary" onClick={() => setMealStarted(true)}><Plus size={16} /> Start a new meal</button>
+        ) : (
+          <div className="meal-draft">
+            <div className="search-line">
+              <Search size={18} />
+              <input value={query} onChange={(e) => setQuery(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && search()} placeholder="Search chicken, rice, yogurt..." autoFocus />
+              <button className="secondary small" onClick={search}>{busy ? <Loader2 className="spin" size={15} /> : 'Search'}</button>
             </div>
+            <div className="search-panel-foot">
+              <p className="hint">{remoteEnabled ? 'Searching USDA and Open Food Facts.' : 'Offline list for now — add your Supabase keys for the full food database.'}</p>
+              <button className="text-button" onClick={() => setCustomModalOpen(true)}>Can't find it? Add it yourself</button>
+            </div>
+
+            {query.trim() ? (
+              <div className="food-list">
+                {results.map((food) => {
+                  const { Icon, tint } = foodCategory(food.name);
+                  const servingSize = defaultServingGrams(food);
+                  const portion = isPieceFood(food) ? `1 ${unitLabel(food)}` : `${servingSize}g`;
+                  return (
+                    <button className="food-result" key={food.id} onClick={() => addDraftItem(food)}>
+                      <span className="food-avatar" style={{ background: tint }}><Icon size={18} aria-hidden="true" /></span>
+                      <span className="food-result-copy">
+                        <strong>{food.name}</strong>
+                        <span>{food.brand || food.source} · {portion}</span>
+                      </span>
+                      <MacroMini nutrients={scaleNutrients(food.nutrientsPer100g, servingSize)} />
+                      <span className="food-add" aria-hidden="true"><Plus size={16} /></span>
+                    </button>
+                  );
+                })}
+              </div>
+            ) : null}
+
+            <div className="section-title inner"><p className="eyebrow">Adding to this meal</p></div>
+            {draftItems.length ? (
+              <div className="program-exercise-list meal-draft-list">
+                {draftItems.map((item, index) => {
+                  const piece = isPieceFood(item.food);
+                  const servingSize = defaultServingGrams(item.food);
+                  const quantity = piece ? Math.round((item.grams / servingSize) * 10) / 10 : item.grams;
+                  const portion = piece ? `${quantity} ${unitLabel(item.food)}` : `${item.grams}g`;
+                  return (
+                    <div key={`${item.food.id}-${index}`}>
+                      <input
+                        inputMode="decimal"
+                        value={quantity}
+                        onChange={(e) => {
+                          const next = Number(e.target.value) || 0;
+                          updateDraftGrams(index, piece ? Math.round(next * servingSize * 10) / 10 : next);
+                        }}
+                      />
+                      <strong>{item.food.name}<small>{portion} · {scaleNutrients(item.food.nutrientsPer100g, item.grams).calories} kcal</small></strong>
+                      <button className="icon-only" onClick={() => removeDraftItem(index)} aria-label={`Remove ${item.food.name}`}><X size={15} /></button>
+                    </div>
+                  );
+                })}
+              </div>
+            ) : <p className="hint">Search above and tap a result to add it here.</p>}
+            {draftItems.length ? (
+              <>
+                <MacroMini nutrients={draftTotals} />
+                {editingSavedMealId ? (
+                  <input value={templateName} onChange={(e) => setTemplateName(e.target.value)} placeholder="Meal name" />
+                ) : (
+                  <>
+                    <label className="rest-day-toggle">
+                      <input type="checkbox" checked={saveAsTemplate} onChange={(e) => setSaveAsTemplate(e.target.checked)} />
+                      Save as a reusable meal
+                    </label>
+                    {saveAsTemplate ? <input value={templateName} onChange={(e) => setTemplateName(e.target.value)} placeholder="e.g. My usual breakfast" autoFocus /> : null}
+                  </>
+                )}
+              </>
+            ) : null}
             <div className="grid two">
-              <label>Which meal<select value={mealType} onChange={(e) => setMealType(e.target.value as MealType)}>{mealTypes.map((type) => <option key={type}>{type}</option>)}</select></label>
-              <label>How much (g)<input value={grams} onChange={(e) => setGrams(Number(e.target.value) || 0)} inputMode="decimal" /></label>
+              <button className="secondary" onClick={cancelMeal}>Cancel</button>
+              {editingSavedMealId ? (
+                <button className="primary" onClick={saveEditedMeal} disabled={!draftItems.length || !templateName.trim()}><Save size={16} /> Save changes</button>
+              ) : (
+                <button className="primary" onClick={logMeal} disabled={!draftItems.length}><Plus size={16} /> Log this meal</button>
+              )}
             </div>
-            <MacroMini nutrients={scaleNutrients(selected.nutrientsPer100g, grams)} />
-            <NutrientGrid nutrients={scaleNutrients(selected.nutrientsPer100g, grams)} compact />
-            <button className="primary" onClick={addSelected}><Plus size={16} /> Add it</button>
+          </div>
+        )}
+
+        <div className="section-title inner">
+          <div><p className="eyebrow">What you ate</p></div>
+          <span>{mealGroups.length} meal{mealGroups.length === 1 ? '' : 's'} · {totals.calories} kcal</span>
+        </div>
+        {mealGroups.length ? (
+          <div className="meal-groups">
+            {mealGroups.map((group) => {
+              const sessionId = group.entries[0].mealSessionId;
+              const isOpen = expandedGroups.has(sessionId);
+              return (
+                <div className={`meal-group ${isOpen ? 'open' : ''}`} key={sessionId}>
+                  <button className="meal-group-head" onClick={() => toggleGroupExpanded(sessionId)}>
+                    <strong>{group.entries[0].mealType}</strong>
+                    <div>
+                      {group.entries.some((entry) => entry.source?.startsWith('ai_')) ? <span className="ai-estimate">AI estimate</span> : null}
+                      <span>{group.entries.length} item{group.entries.length === 1 ? '' : 's'} · {group.totals.calories} kcal</span>
+                      <ChevronDown className="meal-group-chevron" size={15} aria-hidden="true" />
+                    </div>
+                  </button>
+                  {isOpen ? (
+                    <>
+                      <div className="list">
+                        {group.entries.map((entry) => (
+                          <div className="row" key={entry.id}>
+                            <div>
+                              <strong>{entry.food.name}</strong>
+                              <p>{entry.grams}g · {entry.nutrients.protein}p/{entry.nutrients.carbs}c/{entry.nutrients.fat}f</p>
+                            </div>
+                            <button className="icon-only danger" onClick={() => onDelete(entry.id)}><Trash2 size={16} /></button>
+                          </div>
+                        ))}
+                      </div>
+                      <div className="meal-group-actions">
+                        <button
+                          className="text-button"
+                          onClick={() => setSavingGroup({ sessionId, items: group.entries.map((entry) => ({ food: entry.food, grams: entry.grams })) })}
+                        >
+                          Save as a reusable meal
+                        </button>
+                        <button
+                          className="text-button danger"
+                          onClick={() => requestDeleteGroup(group.entries[0].mealType, group.entries.map((entry) => entry.id))}
+                        >
+                          Delete meal
+                        </button>
+                      </div>
+                    </>
+                  ) : null}
+                </div>
+              );
+            })}
+          </div>
+        ) : <Empty title="Nothing yet" text="Search above and add whatever you've had so far." />}
+      </div>
+
+      {customModalOpen ? (
+        <div className="sheet" role="dialog" aria-modal="true" aria-label="Add a custom food">
+          <div className="panel modal-card">
+            <div className="panel-head"><h2>Can't find it? Add it yourself</h2><button className="icon-only" onClick={() => setCustomModalOpen(false)} aria-label="Close"><X size={17} /></button></div>
+            <div className="grid two">
+              <input value={custom.name} onChange={(e) => setCustom({ ...custom, name: e.target.value })} placeholder="What is it?" autoFocus />
+              <input value={custom.calories} onChange={(e) => setCustom({ ...custom, calories: e.target.value })} inputMode="decimal" placeholder="kcal / 100g" />
+              <input value={custom.protein} onChange={(e) => setCustom({ ...custom, protein: e.target.value })} inputMode="decimal" placeholder="protein" />
+              <input value={custom.carbs} onChange={(e) => setCustom({ ...custom, carbs: e.target.value })} inputMode="decimal" placeholder="carbs" />
+              <input value={custom.fat} onChange={(e) => setCustom({ ...custom, fat: e.target.value })} inputMode="decimal" placeholder="fat" />
+            </div>
+            <button className="primary" onClick={addCustomFood} disabled={!custom.name.trim()}>Add it</button>
           </div>
         </div>
       ) : null}
 
-      <div className="panel">
-        <div className="panel-head">
-          <div>
-            <h2>What you ate today</h2>
-            <p className="hint">{totals.calories} kcal · {totals.protein}g protein</p>
+      {savingGroup ? (
+        <div className="sheet" role="dialog" aria-modal="true" aria-label="Save this meal">
+          <div className="panel modal-card">
+            <div className="panel-head"><div><p className="eyebrow">Save it</p><h2>Give this meal a name</h2></div><button className="icon-only" onClick={() => { setSavingGroup(null); setGroupSaveName(''); }} aria-label="Close"><X size={17} /></button></div>
+            <p className="hint">We'll keep all {savingGroup.items.length} item{savingGroup.items.length === 1 ? '' : 's'} and their portions.</p>
+            <label className="modal-field">Meal name<input value={groupSaveName} onChange={(e) => setGroupSaveName(e.target.value)} autoFocus placeholder="e.g. My usual breakfast" /></label>
+            <button className="primary" onClick={saveLoggedMealAsTemplate} disabled={!groupSaveName.trim()}>Save it</button>
           </div>
-          <button className="secondary small" onClick={() => setSaveMealOpen(true)} disabled={!meals.length}>Save as meal</button>
         </div>
-        {meals.length ? (
-          <div className="list">
-            {meals.map((entry) => (
-              <div className="row" key={entry.id}>
-                <div>
-                  <strong>{entry.food.name}</strong>
-                  <p>{entry.mealType} · {entry.grams}g · {entry.nutrients.protein}p/{entry.nutrients.carbs}c/{entry.nutrients.fat}f</p>
-                </div>
-                <button className="icon-only danger" onClick={() => onDelete(entry.id)}><Trash2 size={16} /></button>
-              </div>
-            ))}
+      ) : null}
+
+      {confirmTarget ? (
+        <div className="sheet" role="alertdialog" aria-modal="true" aria-label="Confirm">
+          <div className="panel modal-card confirm-card">
+            <h2>Are you sure?</h2>
+            <p className="hint">{confirmTarget.text}</p>
+            <div className="confirm-actions">
+              <button className="secondary" onClick={() => setConfirmTarget(null)}>Cancel</button>
+              <button className="danger-button" onClick={() => { confirmTarget.onConfirm(); setConfirmTarget(null); }}><Trash2 size={15} /> Remove</button>
+            </div>
           </div>
-        ) : <Empty title="Nothing yet" text="Search above and add whatever you’ve had so far." />}
-      </div>
+        </div>
+      ) : null}
 
       {meals.length ? <NutrientGrid nutrients={totals} /> : null}
 
@@ -1246,21 +1534,14 @@ function FoodView({
               <strong>{meal.name}</strong>
               <p>{meal.items.length} items</p>
             </div>
-            <button className="secondary small" onClick={() => onLogSavedMeal(meal, mealType)}>Add</button>
+            <div className="saved-meal-actions">
+              <button className="icon-only" onClick={() => startEditSavedMeal(meal)} aria-label={`Edit ${meal.name}`}><Pencil size={15} /></button>
+              <button className="icon-only" onClick={() => requestDeleteSavedMeal(meal)} aria-label={`Delete ${meal.name}`}><Trash2 size={15} /></button>
+              <button className="secondary small" onClick={() => onLogSavedMeal(meal, mealType)}>Add</button>
+            </div>
           </div>
         )) : <Empty title="None saved yet" text="Eat the same thing often? Save it and add it in one tap next time." />}
       </div>
-
-      {saveMealOpen ? (
-        <div className="sheet" role="dialog" aria-modal="true" aria-label="Name this meal">
-          <div className="panel modal-card">
-            <div className="panel-head"><div><p className="eyebrow">Save it</p><h2>Give this meal a name</h2></div><button className="icon-only" onClick={() => setSaveMealOpen(false)} aria-label="Close"><X size={17} /></button></div>
-            <p className="hint">We’ll keep all {meals.length} item{meals.length === 1 ? '' : 's'} and their portions.</p>
-            <label className="modal-field">Meal name<input value={savedMealName} onChange={(e) => setSavedMealName(e.target.value)} autoFocus placeholder="e.g. My usual breakfast" /></label>
-            <button className="primary" onClick={saveCurrentMeal} disabled={!savedMealName.trim()}>Save it</button>
-          </div>
-        </div>
-      ) : null}
     </section>
   );
 }
@@ -1535,6 +1816,7 @@ function TrainingView({
             <div><p className="eyebrow">Today's session</p><h2>{template || 'Rest day'}</h2></div>
             <button className="secondary small" onClick={() => setExerciseModalOpen(true)}><Plus size={14} /> Add exercise</button>
           </div>
+          {exercises.length ? <TrainingMusclePreview exercises={exercises} /> : null}
           {exercises.length ? (
             <div className="exercise-list">
               {exercises.map((exercise, exerciseIndex) => {
@@ -1638,46 +1920,244 @@ function TrainingView({
   );
 }
 
-function CardioView({ date, cardio, steps, onSaveCardio, onSaveSteps }: {
+const cardioMachineOrder: CardioMachine[] = ['treadmill', 'bike', 'stair_climber', 'elliptical', 'rowing', 'ski_erg', 'assault_bike', 'other'];
+
+function CardioView({ date, cardio, steps, weightKg, savedSessions, onSaveCardio, onSaveSteps, onSaveCardioSession, onDeleteCardioSession }: {
   date: string;
   cardio: CardioEntry[];
   steps: number;
+  weightKg: number;
+  savedSessions: SavedCardioSession[];
   onSaveCardio: (entry: CardioEntry) => Promise<void>;
   onSaveSteps: (steps: number) => Promise<void>;
+  onSaveCardioSession: (session: SavedCardioSession) => Promise<void>;
+  onDeleteCardioSession: (id: string) => Promise<void>;
 }) {
-  const [cardioForm, setCardioForm] = useState({ type: 'Walk', duration: '', distance: '', calories: '' });
+  const [machine, setMachine] = useState<CardioMachine>('treadmill');
+  const [otherType, setOtherType] = useState('Walk');
+  const [cardioForm, setCardioForm] = useState({ duration: '', distance: '', speed: '', incline: '', watts: '', stepRate: '', calories: '' });
+  const [cyclingEffort, setCyclingEffort] = useState<CyclingEffort | 'custom'>('hard');
+  const [rowingEffort, setRowingEffort] = useState<RowingEffort | 'custom'>('medium');
+  const [saveAsSession, setSaveAsSession] = useState(false);
+  const [sessionName, setSessionName] = useState('');
+  const [editingSessionId, setEditingSessionId] = useState<string | null>(null);
+  const [confirmTarget, setConfirmTarget] = useState<{ text: string; onConfirm: () => void } | null>(null);
   const [stepInput, setStepInput] = useState(String(steps || ''));
   const totalMinutes = cardio.reduce((total, entry) => total + entry.durationMin, 0);
 
   useEffect(() => setStepInput(String(steps || '')), [steps, date]);
 
-  function saveCardioEntry() {
-    if (!cardioForm.type.trim() || !Number(cardioForm.duration)) return;
-    void onSaveCardio({ id: uid('cardio'), date, type: cardioForm.type.trim(), durationMin: Number(cardioForm.duration), distanceKm: Number(cardioForm.distance) || undefined, calories: Number(cardioForm.calories) || undefined });
-    setCardioForm({ type: 'Walk', duration: '', distance: '', calories: '' });
+  const minutes = Number(cardioForm.duration) || 0;
+  const estimate = estimateCardioCalories({
+    machine,
+    weightKg,
+    minutes,
+    speedKmh: Number(cardioForm.speed) || undefined,
+    inclinePercent: cardioForm.incline ? Number(cardioForm.incline) : undefined,
+    watts: Number(cardioForm.watts) || undefined,
+    stepRate: Number(cardioForm.stepRate) || undefined,
+    cyclingEffort: cyclingEffort === 'custom' ? undefined : cyclingEffort,
+    rowingEffort: rowingEffort === 'custom' ? undefined : rowingEffort
+  });
+
+  function resetForm() {
+    setCardioForm({ duration: '', distance: '', speed: '', incline: '', watts: '', stepRate: '', calories: '' });
+    setOtherType('Walk');
+    setCyclingEffort('hard');
+    setRowingEffort('medium');
+    setSaveAsSession(false);
+    setSessionName('');
+    setEditingSessionId(null);
   }
 
-  return <section className="stack view cardio-view">
-    <div className="cardio-hero">
-      <div><p className="eyebrow">Cardio</p><h2>Get moving.</h2><p>Walks, runs, rides — anything that gets your heart going counts.</p></div>
-      <Activity size={40} strokeWidth={1.7} />
-    </div>
+  function sessionConfig(): Omit<SavedCardioSession, 'id' | 'name'> {
+    return {
+      machine,
+      durationMin: minutes || undefined,
+      distanceKm: Number(cardioForm.distance) || undefined,
+      speedKmh: machine === 'treadmill' ? Number(cardioForm.speed) || undefined : undefined,
+      inclinePercent: machine === 'treadmill' && cardioForm.incline ? Number(cardioForm.incline) : undefined,
+      watts: (machine === 'bike' || machine === 'assault_bike' || machine === 'rowing') ? Number(cardioForm.watts) || undefined : undefined,
+      stepRate: machine === 'stair_climber' && cardioForm.stepRate ? Number(cardioForm.stepRate) : undefined
+    };
+  }
+
+  function saveCardioEntry() {
+    const type = machine === 'other' ? otherType.trim() : cardioMachineLabels[machine];
+    if (!type || !minutes) return;
+    void onSaveCardio({
+      id: uid('cardio'),
+      date,
+      type,
+      calories: Number(cardioForm.calories) || estimate || undefined,
+      ...sessionConfig(),
+      durationMin: minutes
+    });
+    if (saveAsSession && sessionName.trim()) {
+      void onSaveCardioSession({ id: uid('cardio-session'), name: sessionName.trim(), ...sessionConfig() });
+    }
+    resetForm();
+  }
+
+  function useSavedSession(saved: SavedCardioSession) {
+    setMachine(saved.machine);
+    setCardioForm({
+      duration: saved.durationMin ? String(saved.durationMin) : '',
+      distance: saved.distanceKm ? String(saved.distanceKm) : '',
+      speed: saved.speedKmh ? String(saved.speedKmh) : '',
+      incline: saved.inclinePercent !== undefined ? String(saved.inclinePercent) : '',
+      watts: saved.watts ? String(saved.watts) : '',
+      stepRate: saved.stepRate ? String(saved.stepRate) : '',
+      calories: ''
+    });
+    if (saved.watts) {
+      setCyclingEffort('custom');
+      setRowingEffort('custom');
+    }
+  }
+
+  function startEditSession(saved: SavedCardioSession) {
+    useSavedSession(saved);
+    setSessionName(saved.name);
+    setEditingSessionId(saved.id);
+    setSaveAsSession(true);
+  }
+
+  function saveSessionChanges() {
+    if (!editingSessionId || !sessionName.trim()) return;
+    void onSaveCardioSession({ id: editingSessionId, name: sessionName.trim(), ...sessionConfig() });
+    resetForm();
+  }
+
+  function requestDeleteSession(saved: SavedCardioSession) {
+    setConfirmTarget({
+      text: `Delete "${saved.name}"? This can't be undone.`,
+      onConfirm: () => void onDeleteCardioSession(saved.id)
+    });
+  }
+
+  const canSave = minutes > 0 && (machine !== 'other' || otherType.trim()) && (machine !== 'treadmill' || Number(cardioForm.speed) > 0);
+
+  return <>
+    <p className="eyebrow cardio-section-label">Cardio</p>
     <div className="panel cardio-log-panel">
       <div className="panel-head"><div><p className="eyebrow">Today</p><h2>Add a session</h2></div><span className="cardio-total">{totalMinutes} min</span></div>
-      <div className="grid two">
-        <label>Activity<input value={cardioForm.type} onChange={(e) => setCardioForm({ ...cardioForm, type: e.target.value })} placeholder="Walk, run, bike" /></label>
-        <label>How long<input value={cardioForm.duration} onChange={(e) => setCardioForm({ ...cardioForm, duration: e.target.value })} inputMode="numeric" placeholder="minutes" /></label>
-        <label>Distance <span className="label-optional">optional</span><input value={cardioForm.distance} onChange={(e) => setCardioForm({ ...cardioForm, distance: e.target.value })} inputMode="decimal" placeholder="km" /></label>
-        <label>Calories <span className="label-optional">optional</span><input value={cardioForm.calories} onChange={(e) => setCardioForm({ ...cardioForm, calories: e.target.value })} inputMode="numeric" placeholder="kcal" /></label>
+
+      <div className="segmented cardio-machine-picker">
+        {cardioMachineOrder.map((key) => <button key={key} className={machine === key ? 'active' : ''} onClick={() => setMachine(key)}>{cardioMachineLabels[key]}</button>)}
       </div>
-      <button className="primary" onClick={saveCardioEntry} disabled={!cardioForm.type.trim() || !Number(cardioForm.duration)}><Bike size={16} /> Add it</button>
+
+      {machine === 'bike' || machine === 'assault_bike' ? (
+        <div className="effort-picker">
+          <p className="eyebrow">Effort {cyclingEffort !== 'custom' ? `(~${cyclingEffortLevels[cyclingEffort].watts}W)` : ''}</p>
+          <div className="cardio-machine-picker">
+            {(Object.keys(cyclingEffortLevels) as CyclingEffort[]).map((key) => (
+              <button key={key} className={cyclingEffort === key ? 'active' : ''} onClick={() => setCyclingEffort(key)}>{cyclingEffortLevels[key].label}</button>
+            ))}
+            <button className={cyclingEffort === 'custom' ? 'active' : ''} onClick={() => setCyclingEffort('custom')}>Custom</button>
+          </div>
+        </div>
+      ) : null}
+
+      {machine === 'rowing' ? (
+        <div className="effort-picker">
+          <p className="eyebrow">Effort</p>
+          <div className="cardio-machine-picker">
+            {(Object.keys(rowingEffortLevels) as RowingEffort[]).map((key) => (
+              <button key={key} className={rowingEffort === key ? 'active' : ''} onClick={() => setRowingEffort(key)}>{rowingEffortLevels[key].label}</button>
+            ))}
+            <button className={rowingEffort === 'custom' ? 'active' : ''} onClick={() => setRowingEffort('custom')}>Custom</button>
+          </div>
+        </div>
+      ) : null}
+
+      <div className="grid two">
+        {machine === 'other' ? (
+          <label>Activity<input value={otherType} onChange={(e) => setOtherType(e.target.value)} placeholder="Walk, swim, hike..." /></label>
+        ) : null}
+        <label>How long<input value={cardioForm.duration} onChange={(e) => setCardioForm({ ...cardioForm, duration: e.target.value })} inputMode="numeric" placeholder="minutes" /></label>
+
+        {machine === 'treadmill' ? (
+          <>
+            <label>Speed<input value={cardioForm.speed} onChange={(e) => setCardioForm({ ...cardioForm, speed: e.target.value })} inputMode="decimal" placeholder="km/h" /></label>
+            <label>Incline <span className="label-optional">optional</span><input value={cardioForm.incline} onChange={(e) => setCardioForm({ ...cardioForm, incline: e.target.value })} inputMode="decimal" placeholder="% grade" /></label>
+          </>
+        ) : null}
+
+        {(machine === 'bike' || machine === 'assault_bike') && cyclingEffort === 'custom' ? (
+          <label>Power<input value={cardioForm.watts} onChange={(e) => setCardioForm({ ...cardioForm, watts: e.target.value })} inputMode="decimal" placeholder="watts" /></label>
+        ) : null}
+
+        {machine === 'rowing' && rowingEffort === 'custom' ? (
+          <label>Power<input value={cardioForm.watts} onChange={(e) => setCardioForm({ ...cardioForm, watts: e.target.value })} inputMode="decimal" placeholder="watts" /></label>
+        ) : null}
+
+        {machine === 'stair_climber' ? (
+          <label>Step rate <span className="label-optional">optional</span><input value={cardioForm.stepRate} onChange={(e) => setCardioForm({ ...cardioForm, stepRate: e.target.value })} inputMode="decimal" placeholder="steps/min" /></label>
+        ) : null}
+
+        <label>Distance <span className="label-optional">optional</span><input value={cardioForm.distance} onChange={(e) => setCardioForm({ ...cardioForm, distance: e.target.value })} inputMode="decimal" placeholder="km" /></label>
+        <label>Calories <span className="label-optional">{estimate ? `≈ ${estimate} estimated` : 'optional'}</span><input value={cardioForm.calories} onChange={(e) => setCardioForm({ ...cardioForm, calories: e.target.value })} inputMode="numeric" placeholder={estimate ? String(estimate) : 'kcal'} /></label>
+      </div>
+
+      {estimate ? <p className="hint cardio-estimate-note">Estimated from ACSM/Compendium formulas using your logged weight ({weightKg}kg) — leave Calories blank to use it, or override with your machine's own reading.</p> : null}
+
+      {editingSessionId ? (
+        <input value={sessionName} onChange={(e) => setSessionName(e.target.value)} placeholder="Session name" />
+      ) : (
+        <label className="rest-day-toggle">
+          <input type="checkbox" checked={saveAsSession} onChange={(e) => setSaveAsSession(e.target.checked)} />
+          Save as a reusable session
+        </label>
+      )}
+      {!editingSessionId && saveAsSession ? <input value={sessionName} onChange={(e) => setSessionName(e.target.value)} placeholder="e.g. Push day treadmill" autoFocus /> : null}
+
+      {editingSessionId ? (
+        <div className="grid two">
+          <button className="secondary" onClick={resetForm}>Cancel</button>
+          <button className="primary" onClick={saveSessionChanges} disabled={!sessionName.trim()}><Save size={16} /> Save changes</button>
+        </div>
+      ) : (
+        <button className="primary" onClick={saveCardioEntry} disabled={!canSave}><Bike size={16} /> Add it</button>
+      )}
     </div>
+
+    <div className="panel">
+      <h2>Saved sessions</h2>
+      {savedSessions.length ? savedSessions.map((saved) => (
+        <div className="row" key={saved.id}>
+          <div>
+            <strong>{saved.name}</strong>
+            <p>{cardioMachineLabels[saved.machine]}{saved.speedKmh ? ` · ${saved.speedKmh} km/h` : ''}{saved.inclinePercent ? ` · ${saved.inclinePercent}%` : ''}{saved.watts ? ` · ${saved.watts}W` : ''}{saved.stepRate ? ` · ${saved.stepRate} steps/min` : ''}</p>
+          </div>
+          <div className="saved-meal-actions">
+            <button className="icon-only" onClick={() => startEditSession(saved)} aria-label={`Edit ${saved.name}`}><Pencil size={15} /></button>
+            <button className="icon-only" onClick={() => requestDeleteSession(saved)} aria-label={`Delete ${saved.name}`}><Trash2 size={15} /></button>
+            <button className="secondary small" onClick={() => useSavedSession(saved)}>Use</button>
+          </div>
+        </div>
+      )) : <Empty title="None saved yet" text="Do the same routine often? Save it and skip the setup next time." />}
+    </div>
+
     <div className="panel steps-panel">
       <div><p className="eyebrow">Every day</p><h2><Footprints size={20} /> Steps</h2><p className="hint">Walking counts too. Pop today’s number in.</p></div>
       <div className="steps-control"><input className="big-input" value={stepInput} onChange={(e) => setStepInput(e.target.value)} inputMode="numeric" placeholder="7000" /><button className="secondary small" onClick={() => onSaveSteps(Number(stepInput) || 0)}>Save</button></div>
     </div>
-    <div className="panel cardio-history"><div className="panel-head"><div><p className="eyebrow">Today</p><h2>What you’ve done</h2></div><span>{cardio.length} session{cardio.length === 1 ? '' : 's'}</span></div>{cardio.length ? cardio.map((entry) => <div className="row cardio-row" key={entry.id}><div><strong>{entry.type}</strong><p>{entry.durationMin} minutes{entry.distanceKm ? ` · ${entry.distanceKm} km` : ''}</p></div><span>{entry.calories ? `${entry.calories} kcal` : 'Done'}</span></div>) : <Empty title="Nothing yet" text="Walks, runs, rides — whatever you did, add it above." />}</div>
-  </section>;
+    <div className="panel cardio-history"><div className="panel-head"><div><p className="eyebrow">Today</p><h2>What you’ve done</h2></div><span>{cardio.length} session{cardio.length === 1 ? '' : 's'}</span></div>{cardio.length ? cardio.map((entry) => <div className="row cardio-row" key={entry.id}><div><strong>{entry.type}</strong><p>{entry.durationMin} minutes{entry.distanceKm ? ` · ${entry.distanceKm} km` : ''}{entry.speedKmh ? ` · ${entry.speedKmh} km/h` : ''}{entry.inclinePercent ? ` · ${entry.inclinePercent}%` : ''}{entry.watts ? ` · ${entry.watts}W` : ''}</p></div><span>{entry.calories ? `${entry.calories} kcal` : 'Done'}</span></div>) : <Empty title="Nothing yet" text="Walks, runs, rides — whatever you did, add it above." />}</div>
+
+    {confirmTarget ? (
+      <div className="sheet" role="alertdialog" aria-modal="true" aria-label="Confirm">
+        <div className="panel modal-card confirm-card">
+          <h2>Are you sure?</h2>
+          <p className="hint">{confirmTarget.text}</p>
+          <div className="confirm-actions">
+            <button className="secondary" onClick={() => setConfirmTarget(null)}>Cancel</button>
+            <button className="danger-button" onClick={() => { confirmTarget.onConfirm(); setConfirmTarget(null); }}><Trash2 size={15} /> Remove</button>
+          </div>
+        </div>
+      </div>
+    ) : null}
+  </>;
 }
 
 function ProgressView({
@@ -1701,6 +2181,7 @@ function ProgressView({
 
   return (
     <section className="stack view progress-view">
+      <MuscleMap workouts={workouts} date={date} />
       <div className="panel">
         <h2>Your weight over time</h2>
         <Trend points={sortedBody.map((item) => ({ date: item.date, value: item.weightKg || 0 }))} />
@@ -1727,6 +2208,215 @@ function ProgressView({
       </div>
     </section>
   );
+}
+
+type MuscleGroup = 'chest' | 'back' | 'shoulders' | 'biceps' | 'triceps' | 'forearms' | 'core' | 'quads' | 'hamstrings' | 'glutes' | 'calves';
+
+const muscleLabels: Record<MuscleGroup, string> = {
+  chest: 'Chest',
+  back: 'Back',
+  shoulders: 'Shoulders',
+  biceps: 'Biceps',
+  triceps: 'Triceps',
+  forearms: 'Forearms',
+  core: 'Core',
+  quads: 'Quads',
+  hamstrings: 'Hamstrings',
+  glutes: 'Glutes',
+  calves: 'Calves'
+};
+
+function TrainingMusclePreview({ exercises }: { exercises: StrengthExercise[] }) {
+  const scores = useMemo(() => {
+    const next = new Map<MuscleGroup, number>();
+    for (const exercise of exercises) {
+      const plannedSets = Math.max(1, exercise.sets.length);
+      for (const muscle of musclesForExercise(exercise.name)) {
+        next.set(muscle, (next.get(muscle) || 0) + plannedSets);
+      }
+    }
+    return next;
+  }, [exercises]);
+  const ranked = [...scores.entries()].sort((a, b) => b[1] - a[1]);
+  const maximum = Math.max(1, ...scores.values());
+  const fill = (muscle: MuscleGroup) => {
+    const level = (scores.get(muscle) || 0) / maximum;
+    return {
+      '--muscle-opacity': String(level ? 0.24 + level * 0.76 : 0.035),
+      '--muscle-stroke-opacity': String(level ? 0.35 + level * 0.65 : 0.14)
+    } as CSSProperties;
+  };
+
+  return (
+    <div className="training-muscle-preview">
+      <div className="training-muscle-copy">
+        <div><p className="eyebrow">Live preview</p><h3>Today’s muscles</h3></div>
+        <p>Updates as you add or remove exercises. Stronger orange means more planned sets.</p>
+        {ranked.length ? (
+          <div className="training-muscle-chips">
+            {ranked.slice(0, 6).map(([muscle, sets]) => <span key={muscle}>{muscleLabels[muscle]} <b>{sets}</b></span>)}
+          </div>
+        ) : <p className="muscle-empty">These exercise names aren’t mapped yet. Choose a library exercise for an accurate preview.</p>}
+      </div>
+      <div className="training-body-maps">
+        <MuscleFigure side="Front" fill={fill} scores={scores} compact />
+        <MuscleFigure side="Back" fill={fill} scores={scores} compact />
+      </div>
+    </div>
+  );
+}
+
+type MuscleRange = 'day' | 'week' | 'month' | 'lastMonth';
+
+const muscleRangeLabels: Record<MuscleRange, string> = {
+  day: 'Day',
+  week: 'This week',
+  month: 'This month',
+  lastMonth: 'Last month'
+};
+
+function muscleRangeDays(date: string, range: MuscleRange): string[] {
+  if (range === 'day') return [date];
+  if (range === 'week') return rangeDays(date, 'week');
+  if (range === 'month') return rangeDays(date, 'month');
+  const prevMonthAnchor = new Date(`${date}T00:00:00`);
+  prevMonthAnchor.setDate(1);
+  prevMonthAnchor.setMonth(prevMonthAnchor.getMonth() - 1);
+  return rangeDays(todayKey(prevMonthAnchor), 'month');
+}
+
+function MuscleMap({ workouts, date }: { workouts: StrengthSession[]; date: string }) {
+  const [range, setRange] = useState<MuscleRange>('week');
+  const days = useMemo(() => muscleRangeDays(date, range), [date, range]);
+  const from = days[0];
+  const to = days[days.length - 1];
+  const scores = useMemo(() => {
+    const next = new Map<MuscleGroup, number>();
+
+    for (const workout of workouts) {
+      if (workout.date < from || workout.date > to) continue;
+      for (const exercise of workout.exercises) {
+        const completedSets = exercise.sets.filter((set) => set.reps > 0).length;
+        if (!completedSets) continue;
+        for (const muscle of musclesForExercise(exercise.name)) {
+          next.set(muscle, (next.get(muscle) || 0) + completedSets);
+        }
+      }
+    }
+    return next;
+  }, [from, to, workouts]);
+
+  const ranked = [...scores.entries()].sort((a, b) => b[1] - a[1]);
+  const maximum = Math.max(1, ...scores.values());
+  const sessions = workouts.filter((workout) => workout.date >= from && workout.date <= to && workout.exercises.some((exercise) => exercise.sets.some((set) => set.reps > 0))).length;
+  const fill = (muscle: MuscleGroup) => {
+    const level = (scores.get(muscle) || 0) / maximum;
+    return {
+      '--muscle-opacity': String(level ? 0.24 + level * 0.76 : 0.035),
+      '--muscle-stroke-opacity': String(level ? 0.35 + level * 0.65 : 0.14)
+    } as CSSProperties;
+  };
+
+  return (
+    <div className="panel muscle-map-panel">
+      <div className="panel-head muscle-map-head">
+        <div>
+          <p className="eyebrow">Training load</p>
+          <h2>Muscles you worked</h2>
+          <p className="hint">Based on completed sets in your strength log.</p>
+        </div>
+        <div className="range-toggle" aria-label="Muscle history range">
+          {(Object.keys(muscleRangeLabels) as MuscleRange[]).map((key) => (
+            <button key={key} className={range === key ? 'active' : ''} onClick={() => setRange(key)}>{muscleRangeLabels[key]}</button>
+          ))}
+        </div>
+      </div>
+
+      <div className="muscle-map-content">
+        <div className="body-maps" aria-label={`Muscle activity across ${sessions} workout${sessions === 1 ? '' : 's'}`}>
+          <MuscleFigure side="Front" fill={fill} scores={scores} />
+          <MuscleFigure side="Back" fill={fill} scores={scores} />
+        </div>
+        <div className="muscle-summary">
+          <div className="muscle-map-stat"><strong>{sessions}</strong><span>workouts</span></div>
+          <div className="muscle-map-stat"><strong>{[...scores.values()].reduce((sum, value) => sum + value, 0)}</strong><span>muscle sets</span></div>
+          {ranked.length ? (
+            <div className="muscle-chip-list">
+              {ranked.map(([muscle, sets]) => <span key={muscle}><i style={fill(muscle)} />{muscleLabels[muscle]} <b>{sets}</b></span>)}
+            </div>
+          ) : <p className="muscle-empty">Complete some sets in Training and your body map will light up here.</p>}
+          <div className="muscle-legend"><span>Less</span><i /><i /><i /><span>More</span></div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function MuscleFigure({ side, fill, scores, compact }: {
+  side: 'Front' | 'Back';
+  fill: (muscle: MuscleGroup) => CSSProperties;
+  scores: Map<MuscleGroup, number>;
+  compact?: boolean;
+}) {
+  const region = (muscle: MuscleGroup) => ({
+    className: 'muscle-region',
+    style: fill(muscle),
+    'aria-label': `${muscleLabels[muscle]}: ${scores.get(muscle) || 0} sets`
+  });
+
+  return (
+    <figure className={`muscle-figure ${compact ? 'compact' : ''}`}>
+      <svg viewBox="0 0 140 300" role="img" aria-label={`${side} muscle activity`}>
+        <circle className="body-base" cx="70" cy="27" r="18" />
+        <path className="body-base" d="M50 49 Q70 42 90 49 L103 116 91 164 86 282 69 282 65 174 58 282 41 282 37 164 25 116Z" />
+        <path className="body-base" d="M30 58 15 123 22 177 35 174 33 121 48 75ZM110 58 125 123 118 177 105 174 107 121 92 75Z" />
+        {side === 'Front' ? (
+          <>
+            <ellipse {...region('shoulders')} cx="45" cy="62" rx="15" ry="12" /><ellipse {...region('shoulders')} cx="95" cy="62" rx="15" ry="12" />
+            <path {...region('chest')} d="M51 62 Q60 54 68 61 L67 91 Q56 94 48 84Z" /><path {...region('chest')} d="M89 62 Q80 54 72 61 L73 91 Q84 94 92 84Z" />
+            <path {...region('biceps')} d="M29 73 Q39 74 40 84 L34 119 24 116Z" /><path {...region('biceps')} d="M111 73 Q101 74 100 84 L106 119 116 116Z" />
+            <path {...region('forearms')} d="M23 119 34 122 31 169 22 171 17 127Z" /><path {...region('forearms')} d="M117 119 106 122 109 169 118 171 123 127Z" />
+            <path {...region('core')} d="M54 94 Q70 100 86 94 L88 151 Q70 160 52 151Z" />
+            <path {...region('quads')} d="M42 158 Q54 153 66 160 L61 220 43 222Z" /><path {...region('quads')} d="M98 158 Q86 153 74 160 L79 220 97 222Z" />
+            <path {...region('calves')} d="M43 225 60 225 57 277 43 277Z" /><path {...region('calves')} d="M97 225 80 225 83 277 97 277Z" />
+          </>
+        ) : (
+          <>
+            <ellipse {...region('shoulders')} cx="45" cy="62" rx="15" ry="12" /><ellipse {...region('shoulders')} cx="95" cy="62" rx="15" ry="12" />
+            <path {...region('back')} d="M50 61 Q70 52 90 61 L91 112 81 139 70 147 59 139 49 112Z" />
+            <path {...region('triceps')} d="M29 73 Q39 74 40 84 L34 119 24 116Z" /><path {...region('triceps')} d="M111 73 Q101 74 100 84 L106 119 116 116Z" />
+            <path {...region('forearms')} d="M23 119 34 122 31 169 22 171 17 127Z" /><path {...region('forearms')} d="M117 119 106 122 109 169 118 171 123 127Z" />
+            <path {...region('glutes')} d="M42 148 Q57 141 68 153 L66 178 Q51 184 39 171Z" /><path {...region('glutes')} d="M98 148 Q83 141 72 153 L74 178 Q89 184 101 171Z" />
+            <path {...region('hamstrings')} d="M41 178 Q53 174 65 180 L61 224 43 222Z" /><path {...region('hamstrings')} d="M99 178 Q87 174 75 180 L79 224 97 222Z" />
+            <path {...region('calves')} d="M43 225 60 225 57 277 43 277Z" /><path {...region('calves')} d="M97 225 80 225 83 277 97 277Z" />
+          </>
+        )}
+      </svg>
+      <figcaption>{side}</figcaption>
+    </figure>
+  );
+}
+
+function musclesForExercise(exerciseName: string): MuscleGroup[] {
+  const name = exerciseName.toLowerCase();
+  const muscles = new Set<MuscleGroup>();
+  const add = (...groups: MuscleGroup[]) => groups.forEach((group) => muscles.add(group));
+
+  if (/stretch|mobility|roll\b|pose\b|warm-up|warm up|arm circle/.test(name)) return [];
+
+  if (/bench|chest|fly|push-up|push up|svend|floor press|dip/.test(name)) add('chest', 'triceps', 'shoulders');
+  if (/row|pulldown|pull-up|pull up|chin-up|chin up|pullover|lever|shrug/.test(name)) add('back', 'biceps');
+  if (/shoulder|overhead press|lateral raise|front raise|rear delt|face pull|upright row|arnold|handstand/.test(name)) add('shoulders');
+  if ((/curl|chin-up|chin up/.test(name)) && !/leg curl|hamstring curl|wrist curl/.test(name)) add('biceps');
+  if (/tricep|pushdown|skull|french press|close grip|diamond|overhead.*extension|extension.*(tricep|arm)/.test(name)) add('triceps');
+  if (/wrist|forearm|farmer|gripper|dead hang/.test(name)) add('forearms');
+  if (/crunch|plank|sit-up|sit up|leg raise|pallof|woodchop|ab wheel|russian twist|dead bug|l-sit/.test(name)) add('core');
+  if (/squat|leg press|leg extension|lunge|step-up|step up|split squat|wall sit/.test(name)) add('quads', 'glutes');
+  if (/deadlift|romanian|leg curl|hamstring|good morning|hip hinge|back extension/.test(name)) add('hamstrings', 'glutes');
+  if (/deadlift|back extension/.test(name)) add('back');
+  if (/hip thrust|glute|kickback|abduction/.test(name)) add('glutes');
+  if (/calf|calves/.test(name)) add('calves');
+  return [...muscles];
 }
 
 function ProfileView({ profile, localMode, onSave, onSignOut }: { profile: UserProfile; localMode: boolean; onSave: (profile: UserProfile) => Promise<void>; onSignOut: () => Promise<void> }) {
@@ -1968,6 +2658,44 @@ function ratio(value: number, target: number) {
   return Math.min(100, Math.max(0, (value / target) * 100));
 }
 
+/** Foods like "1 large" (eggs) or "1 tbsp" (oil) are counted, not weighed — anything ending in a weight/volume unit stays gram-based. */
+function isWeightUnit(unit?: string) {
+  if (!unit) return true;
+  return /(^|\s)(g|kg|ml|l)s?$/i.test(unit.trim());
+}
+
+/** Countable foods where the source rarely knows the per-item weight (e.g. USDA search results for "egg" only ever return generic 100g reference data). */
+const countableFoodNames = /\begg(s)?\b/i;
+
+function isPieceFood(food: Food) {
+  if (food.servingUnit && !isWeightUnit(food.servingUnit)) return true;
+  return countableFoodNames.test(food.name);
+}
+
+function defaultServingGrams(food: Food) {
+  if (food.servingGrams) return food.servingGrams;
+  if (countableFoodNames.test(food.name)) return 50;
+  return 100;
+}
+
+function unitLabel(food: Food) {
+  if (food.servingUnit && !isWeightUnit(food.servingUnit)) {
+    return food.servingUnit.replace(/^\d+(\.\d+)?\s*/, '') || 'serving';
+  }
+  if (countableFoodNames.test(food.name)) return 'egg';
+  return 'serving';
+}
+
+function dedupeFoods(foods: Food[]): Food[] {
+  const seen = new Set<string>();
+  return foods.filter((food) => {
+    const key = `${food.name.toLowerCase().trim()}|${(food.brand || '').toLowerCase().trim()}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
 function foodCategory(name: string) {
   const text = name.toLowerCase();
   if (/beef|steak|burger|meatball|pork|bacon|ham\b/.test(text)) return { Icon: Beef, tint: '#8a3a2c' };
@@ -1987,6 +2715,11 @@ function mealToRow(entry: MealEntry, userId: string) {
     user_id: userId,
     log_date: entry.date,
     meal_type: entry.mealType,
+    meal_session_id: entry.mealSessionId,
+    meal_source: entry.source || 'manual',
+    source_metadata: entry.sourceMetadata || {},
+    idempotency_key: entry.idempotencyKey || null,
+    eaten_at: entry.createdAt,
     food_snapshot: entry.food,
     grams: entry.grams,
     nutrients: entry.nutrients,
@@ -1999,10 +2732,14 @@ function mealFromRow(row: any): MealEntry {
     id: row.id,
     date: row.log_date,
     mealType: row.meal_type,
+    mealSessionId: row.meal_session_id || row.id,
+    source: row.meal_source || 'manual',
+    sourceMetadata: row.source_metadata || {},
+    idempotencyKey: row.idempotency_key || undefined,
     food: row.food_snapshot,
     grams: row.grams,
     nutrients: row.nutrients,
-    createdAt: row.created_at
+    createdAt: row.eaten_at || row.created_at
   };
 }
 

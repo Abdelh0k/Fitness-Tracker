@@ -3,6 +3,7 @@ import type {
   CardioEntry,
   MealEntry,
   ProgressPhoto,
+  SavedCardioSession,
   SavedMeal,
   StepEntry,
   StrengthSession,
@@ -56,6 +57,7 @@ export type LocalState = {
   strength: StrengthSession[];
   programs: TrainingProgram[];
   cardio: CardioEntry[];
+  savedCardioSessions: SavedCardioSession[];
   steps: StepEntry[];
   body: BodyMetric[];
   photos: ProgressPhoto[];

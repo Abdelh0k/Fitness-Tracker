@@ -1,4 +1,5 @@
 export type MealType = 'breakfast' | 'lunch' | 'dinner' | 'snack';
+export type MealSource = 'manual' | 'ai_photo' | 'ai_text' | 'ai_voice' | 'barcode' | 'import';
 export type Goal = 'fat_loss' | 'recomp' | 'muscle_gain' | 'maintain';
 export type ActivityLevel = 'light' | 'moderate' | 'active' | 'very_active';
 export type ExperienceLevel = 'new' | 'returning' | 'intermediate' | 'advanced';
@@ -43,10 +44,20 @@ export type MealEntry = {
   id: string;
   date: string;
   mealType: MealType;
+  /** Groups foods eaten together as one meal. Falls back to the entry's own id for legacy rows. */
+  mealSessionId: string;
   food: Food;
   grams: number;
   nutrients: Nutrients;
   createdAt: string;
+  source?: MealSource;
+  sourceMetadata?: {
+    model?: string;
+    confidence?: number;
+    externalClientId?: string;
+    originalLabel?: string;
+  };
+  idempotencyKey?: string;
 };
 
 export type SavedMeal = {
@@ -112,6 +123,8 @@ export type TrainingProgram = {
   days: ProgramDay[];
 };
 
+export type CardioMachine = 'treadmill' | 'bike' | 'stair_climber' | 'elliptical' | 'rowing' | 'ski_erg' | 'assault_bike' | 'other';
+
 export type CardioEntry = {
   id: string;
   date: string;
@@ -119,6 +132,27 @@ export type CardioEntry = {
   durationMin: number;
   distanceKm?: number;
   calories?: number;
+  machine?: CardioMachine;
+  /** km/h — treadmill only. */
+  speedKmh?: number;
+  /** percent grade — treadmill only. */
+  inclinePercent?: number;
+  /** watts — bike and assault bike (ACSM leg-ergometry), or rowing (Compendium bracket lookup). */
+  watts?: number;
+  /** steps/min — stair climber only; falls back to a fixed Compendium MET when omitted. */
+  stepRate?: number;
+};
+
+export type SavedCardioSession = {
+  id: string;
+  name: string;
+  machine: CardioMachine;
+  durationMin?: number;
+  distanceKm?: number;
+  speedKmh?: number;
+  inclinePercent?: number;
+  watts?: number;
+  stepRate?: number;
 };
 
 export type StepEntry = {

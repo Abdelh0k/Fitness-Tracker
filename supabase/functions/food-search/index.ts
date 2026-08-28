@@ -31,6 +31,7 @@ type FoodResult = {
   servingUnit?: string;
   servingGrams?: number;
   nutrientsPer100g: Nutrients;
+  _priority?: number;
 };
 
 const corsHeaders = {
@@ -56,12 +57,13 @@ Deno.serve(async (req) => {
     }
 
     const [usda, openFoodFacts] = await Promise.allSettled([searchUsda(query), searchOpenFoodFacts(query)]);
-    const foods = [
+    const foods = dedupe([
       ...(usda.status === 'fulfilled' ? usda.value : []),
       ...(openFoodFacts.status === 'fulfilled' ? openFoodFacts.value : [])
-    ]
+    ])
       .filter((food) => food.nutrientsPer100g.calories > 0 || food.nutrientsPer100g.protein > 0)
-      .slice(0, 24);
+      .slice(0, 24)
+      .map(({ _priority, ...food }) => food);
 
     return json({ foods });
   } catch (error) {
@@ -69,33 +71,65 @@ Deno.serve(async (req) => {
   }
 });
 
-async function searchUsda(query: string): Promise<FoodResult[]> {
+async function fetchUsdaPage(query: string, dataType: string[], pageSize: number): Promise<any[]> {
   const apiKey = Deno.env.get('USDA_API_KEY') || 'DEMO_KEY';
   const response = await fetch('https://api.nal.usda.gov/fdc/v1/foods/search?api_key=' + encodeURIComponent(apiKey), {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({
-      query,
-      pageSize: 12,
-      dataType: ['Foundation', 'SR Legacy', 'Survey (FNDDS)', 'Branded']
-    })
+    body: JSON.stringify({ query, pageSize, dataType })
   });
-
   if (!response.ok) return [];
   const data = await response.json();
-  return (data.foods || []).map((food: any) => {
-    const nutrients = nutrientMap(food.foodNutrients || []);
-    return {
-      id: `usda-${food.fdcId}`,
-      source: 'usda',
-      sourceId: String(food.fdcId),
-      name: cleanName(food.description || food.lowercaseDescription || 'USDA food'),
-      brand: food.brandOwner || food.brandName || undefined,
-      servingUnit: food.servingSizeUnit ? `${food.servingSize || 100} ${food.servingSizeUnit}` : '100 g',
-      servingGrams: Number(food.servingSize) || 100,
-      nutrientsPer100g: nutrients
-    };
-  });
+  return data.foods || [];
+}
+
+async function searchUsda(query: string): Promise<FoodResult[]> {
+  // A single blended-dataType call isn't enough: USDA's own relevance ranking for a bare,
+  // one-word ingredient query (e.g. "potato") routinely lets survey/branded/dish results
+  // outrank the true generic ingredient so badly that it never even makes the page — not just
+  // ranked low, absent entirely. Verified directly against the USDA API: querying "potato" with
+  // all four data types returns zero Foundation/SR-Legacy raw/baked potato entries in the top 50,
+  // but restricting to just Foundation/SR-Legacy for the same query surfaces them immediately,
+  // since they're no longer competing against dish and branded noise. So we run that restricted
+  // call in parallel with the normal broad one and merge, rather than trying to out-sort a pool
+  // that never contained the reference entry to begin with.
+  const [reference, broad] = await Promise.all([
+    fetchUsdaPage(query, ['Foundation', 'SR Legacy'], 25),
+    fetchUsdaPage(query, ['Foundation', 'SR Legacy', 'Survey (FNDDS)', 'Branded'], 50)
+  ]);
+
+  const dataTypePriority: Record<string, number> = { Foundation: 0, 'SR Legacy': 1, 'Survey (FNDDS)': 2, Branded: 3 };
+  // USDA tags every entry with its own food-group category. Demote (not remove — a search for
+  // the dish itself should still surface it) prepared/composite categories below plain
+  // ingredient ones, so "Potato Soup" doesn't outrank "Boiled Potato" for a "potato" search.
+  const compositeCategory = /soup|sauce|gravy|baked products|fast foods|restaurant foods|meals,? entrees|side dish|snacks|sweets|desserts/i;
+  return [...reference, ...broad]
+    .map((food: any) => {
+      const nutrients = nutrientMap(food.foodNutrients || []);
+      const category = String(food.foodCategory || food.brandedFoodCategory || '');
+      const isComposite = compositeCategory.test(category);
+      return {
+        id: `usda-${food.fdcId}`,
+        source: 'usda' as const,
+        sourceId: String(food.fdcId),
+        name: cleanName(food.description || food.lowercaseDescription || 'USDA food'),
+        brand: food.brandOwner || food.brandName || undefined,
+        servingUnit: food.servingSizeUnit ? `${food.servingSize || 100} ${food.servingSizeUnit}` : '100 g',
+        // Leave this undefined when USDA doesn't actually provide a serving size, rather than
+        // faking "100g" here — the client uses a missing servingGrams as its signal to apply a
+        // food-specific default (e.g. ~50g for one egg). Baking a fake 100 in here defeated that:
+        // "1 egg" was being computed as 100g of egg, showing the raw per-100g number as if it
+        // were one egg's worth.
+        servingGrams: food.servingSize ? Number(food.servingSize) : undefined,
+        nutrientsPer100g: nutrients,
+        // Composite/prepared categories are demoted below *all* plain-ingredient results,
+        // regardless of data-source tier — a Foundation-tagged dish entry (e.g. an Egg McMuffin
+        // miscategorized as high-tier data) must not outrank a Survey-tier plain egg. Data-type
+        // only tie-breaks within the same composite/plain group.
+        _priority: (isComposite ? 100 : 0) + (dataTypePriority[food.dataType] ?? 4)
+      };
+    })
+    .sort((a, b) => a._priority - b._priority);
 }
 
 async function searchOpenFoodFacts(query: string): Promise<FoodResult[]> {
@@ -105,6 +139,7 @@ async function searchOpenFoodFacts(query: string): Promise<FoodResult[]> {
   url.searchParams.set('action', 'process');
   url.searchParams.set('json', '1');
   url.searchParams.set('page_size', '12');
+  url.searchParams.set('sort_by', 'unique_scans_n');
   url.searchParams.set('fields', 'code,product_name,brands,nutriments,serving_quantity,serving_size');
 
   const response = await fetch(url, {
@@ -123,7 +158,7 @@ async function searchOpenFoodFacts(query: string): Promise<FoodResult[]> {
       name: cleanName(product.product_name || 'Packaged food'),
       brand: product.brands || undefined,
       servingUnit: product.serving_size || '100 g',
-      servingGrams: Number(product.serving_quantity) || 100,
+      servingGrams: product.serving_quantity ? Number(product.serving_quantity) : undefined,
       nutrientsPer100g: {
         calories: Math.round(Number(n['energy-kcal_100g']) || kjToKcal(Number(n.energy_100g)) || 0),
         protein: round1(Number(n.proteins_100g) || 0),
@@ -181,8 +216,36 @@ function nutrientMap(items: any[]): Nutrients {
   };
 }
 
+/** Collapses entries that are the same food under a different source/id, keeping the first (highest-priority) one. */
+function dedupe(foods: FoodResult[]): FoodResult[] {
+  const seen = new Set<string>();
+  const result: FoodResult[] = [];
+  for (const food of foods) {
+    const key = `${food.name.toLowerCase().trim()}|${(food.brand || '').toLowerCase().trim()}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    result.push(food);
+  }
+  return result;
+}
+
+/**
+ * USDA descriptions are comma-separated in category-first order ("Potato, Boiled, Nfs",
+ * "Soup, Potato") rather than how anyone would actually say the food's name. Strip the
+ * "Nfs" ("not further specified") tag and, for the common two-part case, flip the order
+ * into plain English: "Potato, Boiled, Nfs" -> "Boiled Potato", "Soup, Potato" -> "Potato Soup".
+ * Three-or-more-part descriptions are left comma-joined — no single reversal rule fits those.
+ */
 function cleanName(value: string) {
-  return value.toLowerCase().replace(/\b\w/g, (char) => char.toUpperCase());
+  const titled = value.toLowerCase().replace(/\b\w/g, (char) => char.toUpperCase());
+  const segments = titled
+    .split(',')
+    .map((segment) => segment.trim())
+    .filter((segment) => segment && !/^n\.?s$|^nfs$/i.test(segment));
+  if (segments.length === 0) return titled;
+  if (segments.length === 1) return segments[0];
+  if (segments.length === 2) return `${segments[1]} ${segments[0]}`;
+  return segments.join(', ');
 }
 
 function round1(value: number) {
