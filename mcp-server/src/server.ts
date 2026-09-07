@@ -3,11 +3,16 @@ import { McpServer, type AuthInfo } from '@modelcontextprotocol/server';
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 import { z } from 'zod';
 import type { AppConfig } from './config.js';
-import { dateDaysAgo, per100g, sumNutrients, todayUtc, type Nutrients } from './domain.js';
+import { estimateCardioCalories } from './cardioCalories.js';
+import { dateDaysAgo, per100g, scaleNutrients, sumNutrients, todayUtc, type Nutrients } from './domain.js';
 
 const dateSchema = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Use YYYY-MM-DD');
 const sourceSchema = z.enum(['ai_photo', 'ai_text', 'ai_voice', 'import']);
 const idempotencySchema = z.string().min(8).max(200).describe('Stable retry key for this logical operation');
+const cardioMachineSchema = z.enum(['treadmill', 'bike', 'stair_climber', 'elliptical', 'rowing', 'ski_erg', 'assault_bike', 'other']);
+const cyclingEffortSchema = z.enum(['low', 'medium', 'hard', 'very_hard', 'max']);
+const rowingEffortSchema = z.enum(['low', 'medium', 'hard', 'very_hard']);
+const weekdaySchema = z.number().int().min(0).max(6).describe('0 = Monday ... 6 = Sunday');
 
 function textResult(data: unknown) {
   return {
@@ -31,6 +36,11 @@ function userClient(config: AppConfig, token: string): SupabaseClient {
 
 function fail(error: { message: string } | null, operation: string): never {
   throw new Error(`${operation}: ${error?.message || 'unknown database error'}`);
+}
+
+async function fetchWeightKg(db: SupabaseClient, userId: string): Promise<number | undefined> {
+  const { data } = await db.from('profiles').select('current_weight_kg').eq('id', userId).maybeSingle();
+  return data?.current_weight_kg || undefined;
 }
 
 const mutationAnnotations = {
@@ -284,16 +294,104 @@ export function buildAteformServer(config: AppConfig, authInfo?: AuthInfo): McpS
   );
 
   server.registerTool(
+    'delete_workout',
+    {
+      title: 'Delete a workout',
+      description: 'Permanently delete the strength session for a date.',
+      inputSchema: z.object({ log_date: dateSchema }),
+      annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: false },
+    },
+    async ({ log_date }) => {
+      const deleted = await db.from('strength_sessions').delete().eq('user_id', userId).eq('log_date', log_date).select('id');
+      if (deleted.error) fail(deleted.error, 'Could not delete workout');
+      return textResult({ deleted: true, log_date, found: (deleted.data?.length || 0) > 0 });
+    },
+  );
+
+  const programDaySchema = z.object({
+    id: z.string().optional().describe('Omit for a new day; the server assigns one'),
+    weekday: weekdaySchema,
+    name: z.string().trim().min(1).max(80),
+    exercises: z.array(z.string().trim().min(1).max(160)).max(40),
+    is_rest_day: z.boolean().optional(),
+  });
+
+  server.registerTool(
+    'list_programs',
+    {
+      title: 'List training programs',
+      description: 'List the user\'s saved training programs (weekly push/pull/legs-style splits).',
+      inputSchema: z.object({}),
+      annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+    },
+    async () => {
+      const { data, error } = await db.from('training_programs').select('*').eq('user_id', userId).order('updated_at', { ascending: false });
+      if (error) fail(error, 'Could not list programs');
+      return textResult({ programs: data || [] });
+    },
+  );
+
+  server.registerTool(
+    'save_program',
+    {
+      title: 'Save a training program',
+      description: 'Create or update (pass id) a weekly training program: a name plus one entry per day of the week with its exercise list.',
+      inputSchema: z.object({
+        id: z.string().uuid().optional().describe('Omit to create a new program, pass to replace an existing one\'s days'),
+        name: z.string().trim().min(1).max(80),
+        days: z.array(programDaySchema).min(1).max(7),
+      }),
+      annotations: mutationAnnotations,
+    },
+    async (input) => {
+      const id = input.id || randomUUID();
+      const days = input.days.map((day) => ({
+        id: day.id || randomUUID(),
+        weekday: day.weekday,
+        name: day.name,
+        exercises: day.exercises,
+        ...(day.is_rest_day == null ? {} : { isRestDay: day.is_rest_day }),
+      }));
+      const saved = await db.from('training_programs').upsert({ id, user_id: userId, name: input.name, days }).select('*').single();
+      if (saved.error) fail(saved.error, 'Could not save program');
+      return textResult({ saved: true, program: saved.data });
+    },
+  );
+
+  server.registerTool(
+    'delete_program',
+    {
+      title: 'Delete a training program',
+      description: 'Permanently delete a training program.',
+      inputSchema: z.object({ program_id: z.string().uuid() }),
+      annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: false },
+    },
+    async ({ program_id }) => {
+      const deleted = await db.from('training_programs').delete().eq('user_id', userId).eq('id', program_id).select('id');
+      if (deleted.error) fail(deleted.error, 'Could not delete program');
+      return textResult({ deleted: true, program_id, found: (deleted.data?.length || 0) > 0 });
+    },
+  );
+
+  server.registerTool(
     'log_cardio',
     {
       title: 'Log cardio',
-      description: 'Log a cardio activity such as running, cycling, swimming or walking.',
+      description:
+        'Log a cardio activity such as running, cycling, swimming or walking. For gym machines, pass `machine` plus its speed/incline, watts, or step rate — calories are then estimated from ACSM metabolic equations and the Compendium of Physical Activities using the user\'s current weight, instead of being guessed. Pass `calories` yourself to override.',
       inputSchema: z.object({
         log_date: dateSchema.optional(),
-        type: z.string().trim().min(1).max(100),
+        type: z.string().trim().min(1).max(100).describe('Free-text label, e.g. "Treadmill run" or "Outdoor cycling"'),
         duration_min: z.number().int().min(0).max(1_440),
         distance_km: z.number().nonnegative().max(1_000).optional(),
-        calories: z.number().int().nonnegative().max(20_000).optional(),
+        calories: z.number().int().nonnegative().max(20_000).optional().describe('Overrides the auto-estimate when provided'),
+        machine: cardioMachineSchema.optional().describe('Enables auto-estimated calories for treadmill/bike/stair_climber/elliptical/rowing/ski_erg/assault_bike'),
+        speed_kmh: z.number().positive().max(60).optional().describe('Treadmill only'),
+        incline_percent: z.number().min(0).max(40).optional().describe('Treadmill only'),
+        watts: z.number().positive().max(1_000).optional().describe('Bike, assault bike, or rowing'),
+        step_rate: z.number().positive().max(300).optional().describe('Steps/min, stair climber only'),
+        cycling_effort: cyclingEffortSchema.optional().describe('Bike/assault bike effort bucket, used when watts is unknown'),
+        rowing_effort: rowingEffortSchema.optional().describe('Rowing effort bucket, used when watts is unknown'),
         source: sourceSchema.default('ai_text'),
         idempotency_key: idempotencySchema,
       }),
@@ -303,19 +401,201 @@ export function buildAteformServer(config: AppConfig, authInfo?: AuthInfo): McpS
       const existing = await db.from('cardio_entries').select('*').eq('user_id', userId).eq('idempotency_key', input.idempotency_key).maybeSingle();
       if (existing.error) fail(existing.error, 'Could not check cardio retry key');
       if (existing.data) return textResult({ created: false, idempotent_replay: true, cardio: existing.data });
+
+      let calories = input.calories;
+      if (calories == null && input.machine) {
+        const weightKg = await fetchWeightKg(db, userId);
+        if (weightKg) {
+          calories = estimateCardioCalories({
+            machine: input.machine,
+            weightKg,
+            minutes: input.duration_min,
+            speedKmh: input.speed_kmh,
+            inclinePercent: input.incline_percent,
+            watts: input.watts,
+            stepRate: input.step_rate,
+            cyclingEffort: input.cycling_effort,
+            rowingEffort: input.rowing_effort,
+          }) ?? undefined;
+        }
+      }
+
       const saved = await db.from('cardio_entries').insert({
         user_id: userId,
         log_date: input.log_date || todayUtc(),
         type: input.type,
         duration_min: input.duration_min,
         distance_km: input.distance_km,
-        calories: input.calories,
+        calories,
+        machine: input.machine,
+        speed_kmh: input.speed_kmh,
+        incline_percent: input.incline_percent,
+        watts: input.watts,
+        step_rate: input.step_rate,
         entry_source: input.source,
         source_metadata: { externalClientId: clientId },
         idempotency_key: input.idempotency_key,
       }).select('*').single();
       if (saved.error) fail(saved.error, 'Could not log cardio');
+      return textResult({ created: true, cardio: saved.data, calories_estimated: input.calories == null && calories != null });
+    },
+  );
+
+  server.registerTool(
+    'delete_cardio',
+    {
+      title: 'Delete a cardio entry',
+      description: 'Permanently delete one cardio entry.',
+      inputSchema: z.object({ cardio_id: z.string().uuid() }),
+      annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: false },
+    },
+    async ({ cardio_id }) => {
+      const deleted = await db.from('cardio_entries').delete().eq('user_id', userId).eq('id', cardio_id).select('id');
+      if (deleted.error) fail(deleted.error, 'Could not delete cardio entry');
+      return textResult({ deleted: true, cardio_id, found: (deleted.data?.length || 0) > 0 });
+    },
+  );
+
+  server.registerTool(
+    'list_saved_cardio_sessions',
+    {
+      title: 'List saved cardio sessions',
+      description: 'List the user\'s reusable cardio session templates (e.g. a regular treadmill routine).',
+      inputSchema: z.object({}),
+      annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+    },
+    async () => {
+      const { data, error } = await db.from('saved_cardio_sessions').select('*').eq('user_id', userId).order('updated_at', { ascending: false });
+      if (error) fail(error, 'Could not list saved cardio sessions');
+      return textResult({ sessions: data || [] });
+    },
+  );
+
+  server.registerTool(
+    'save_cardio_session',
+    {
+      title: 'Save a reusable cardio session',
+      description: 'Create or update (pass id) a named cardio session template with its machine settings, for quick reuse later.',
+      inputSchema: z.object({
+        id: z.string().uuid().optional().describe('Omit to create a new template, pass to update an existing one'),
+        name: z.string().trim().min(1).max(80),
+        machine: cardioMachineSchema,
+        duration_min: z.number().int().positive().max(1_440).optional(),
+        distance_km: z.number().nonnegative().max(1_000).optional(),
+        speed_kmh: z.number().positive().max(60).optional(),
+        incline_percent: z.number().min(0).max(40).optional(),
+        watts: z.number().positive().max(1_000).optional(),
+        step_rate: z.number().positive().max(300).optional(),
+      }),
+      annotations: mutationAnnotations,
+    },
+    async (input) => {
+      const id = input.id || randomUUID();
+      const saved = await db.from('saved_cardio_sessions').upsert({
+        id,
+        user_id: userId,
+        name: input.name,
+        machine: input.machine,
+        duration_min: input.duration_min,
+        distance_km: input.distance_km,
+        speed_kmh: input.speed_kmh,
+        incline_percent: input.incline_percent,
+        watts: input.watts,
+        step_rate: input.step_rate,
+      }).select('*').single();
+      if (saved.error) fail(saved.error, 'Could not save cardio session');
+      return textResult({ saved: true, session: saved.data });
+    },
+  );
+
+  server.registerTool(
+    'delete_saved_cardio_session',
+    {
+      title: 'Delete a saved cardio session',
+      description: 'Permanently delete a reusable cardio session template.',
+      inputSchema: z.object({ saved_session_id: z.string().uuid() }),
+      annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: false },
+    },
+    async ({ saved_session_id }) => {
+      const deleted = await db.from('saved_cardio_sessions').delete().eq('user_id', userId).eq('id', saved_session_id).select('id');
+      if (deleted.error) fail(deleted.error, 'Could not delete saved cardio session');
+      return textResult({ deleted: true, saved_session_id, found: (deleted.data?.length || 0) > 0 });
+    },
+  );
+
+  server.registerTool(
+    'log_saved_cardio_session',
+    {
+      title: 'Log cardio from a saved session',
+      description: 'Instantiate a saved cardio session template as a logged cardio entry for a date, re-estimating calories from current bodyweight.',
+      inputSchema: z.object({
+        saved_session_id: z.string().uuid(),
+        log_date: dateSchema.optional(),
+        duration_min: z.number().int().positive().max(1_440).optional().describe('Overrides the template\'s stored duration'),
+        source: sourceSchema.default('ai_text'),
+        idempotency_key: idempotencySchema,
+      }),
+      annotations: mutationAnnotations,
+    },
+    async (input) => {
+      const existing = await db.from('cardio_entries').select('*').eq('user_id', userId).eq('idempotency_key', input.idempotency_key).maybeSingle();
+      if (existing.error) fail(existing.error, 'Could not check cardio retry key');
+      if (existing.data) return textResult({ created: false, idempotent_replay: true, cardio: existing.data });
+
+      const template = await db.from('saved_cardio_sessions').select('*').eq('user_id', userId).eq('id', input.saved_session_id).single();
+      if (template.error) fail(template.error, 'Saved cardio session was not found');
+      const minutes = input.duration_min ?? template.data.duration_min;
+      if (!minutes) throw new Error('This template has no stored duration; pass duration_min');
+
+      const weightKg = await fetchWeightKg(db, userId);
+      const calories = weightKg
+        ? estimateCardioCalories({
+            machine: template.data.machine,
+            weightKg,
+            minutes,
+            speedKmh: template.data.speed_kmh,
+            inclinePercent: template.data.incline_percent,
+            watts: template.data.watts,
+            stepRate: template.data.step_rate,
+          }) ?? undefined
+        : undefined;
+
+      const saved = await db.from('cardio_entries').insert({
+        user_id: userId,
+        log_date: input.log_date || todayUtc(),
+        type: template.data.name,
+        duration_min: minutes,
+        distance_km: template.data.distance_km,
+        calories,
+        machine: template.data.machine,
+        speed_kmh: template.data.speed_kmh,
+        incline_percent: template.data.incline_percent,
+        watts: template.data.watts,
+        step_rate: template.data.step_rate,
+        entry_source: input.source,
+        source_metadata: { externalClientId: clientId },
+        idempotency_key: input.idempotency_key,
+      }).select('*').single();
+      if (saved.error) fail(saved.error, 'Could not log cardio from saved session');
       return textResult({ created: true, cardio: saved.data });
+    },
+  );
+
+  server.registerTool(
+    'log_steps',
+    {
+      title: 'Log steps',
+      description: 'Create or update the step count for a date.',
+      inputSchema: z.object({ log_date: dateSchema.optional(), steps: z.number().int().min(0).max(100_000) }),
+      annotations: mutationAnnotations,
+    },
+    async ({ log_date, steps }) => {
+      const saved = await db.from('step_entries').upsert(
+        { user_id: userId, log_date: log_date || todayUtc(), steps },
+        { onConflict: 'user_id,log_date' },
+      ).select('*').single();
+      if (saved.error) fail(saved.error, 'Could not log steps');
+      return textResult({ saved: true, steps: saved.data });
     },
   );
 
@@ -348,6 +628,21 @@ export function buildAteformServer(config: AppConfig, authInfo?: AuthInfo): McpS
   );
 
   server.registerTool(
+    'delete_body_metric',
+    {
+      title: 'Delete a body metric entry',
+      description: 'Permanently delete the body measurements logged for a date.',
+      inputSchema: z.object({ log_date: dateSchema }),
+      annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: false },
+    },
+    async ({ log_date }) => {
+      const deleted = await db.from('body_metrics').delete().eq('user_id', userId).eq('log_date', log_date).select('id');
+      if (deleted.error) fail(deleted.error, 'Could not delete body metric');
+      return textResult({ deleted: true, log_date, found: (deleted.data?.length || 0) > 0 });
+    },
+  );
+
+  server.registerTool(
     'get_progress_summary',
     {
       title: 'Get progress summary',
@@ -364,6 +659,189 @@ export function buildAteformServer(config: AppConfig, authInfo?: AuthInfo): McpS
       ]);
       for (const result of [body, strength, cardio]) if (result.error) fail(result.error, 'Could not load progress summary');
       return textResult({ from, through: todayUtc(), days, body: body.data || [], strength: strength.data || [], cardio: cardio.data || [] });
+    },
+  );
+
+  server.registerTool(
+    'get_profile',
+    {
+      title: 'Get profile and targets',
+      description: 'Read the user\'s personal details and daily nutrition/activity targets.',
+      inputSchema: z.object({}),
+      annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+    },
+    async () => {
+      const { data, error } = await db.from('profiles').select('*').eq('id', userId).maybeSingle();
+      if (error) fail(error, 'Could not load profile');
+      return textResult({ profile: data });
+    },
+  );
+
+  server.registerTool(
+    'update_profile',
+    {
+      title: 'Update profile and targets',
+      description: 'Update any subset of the user\'s personal details or daily targets. Only pass fields that are changing.',
+      inputSchema: z.object({
+        display_name: z.string().trim().min(1).max(80).optional(),
+        age: z.number().int().min(13).max(100).optional(),
+        gender: z.enum(['male', 'female']).optional(),
+        height_cm: z.number().min(100).max(250).optional(),
+        current_weight_kg: z.number().min(30).max(300).optional(),
+        target_weight_kg: z.number().min(30).max(300).optional(),
+        training_days_per_week: z.number().int().min(0).max(14).optional(),
+        cardio_days_per_week: z.number().int().min(0).max(14).optional(),
+        daily_steps_target: z.number().int().min(0).max(100_000).optional(),
+        goal: z.enum(['fat_loss', 'recomp', 'muscle_gain', 'maintain']).optional(),
+        experience_level: z.enum(['new', 'returning', 'intermediate', 'advanced']).optional(),
+        weekly_pace: z.enum(['easy', 'steady', 'fast']).optional(),
+        calorie_target: z.number().int().min(800).max(8_000).optional(),
+        protein_target_g: z.number().int().min(0).max(500).optional(),
+        fat_target_g: z.number().int().min(0).max(400).optional(),
+        carb_target_g: z.number().int().min(0).max(1_000).optional(),
+      }).refine((value) => Object.keys(value).length > 0, 'Provide at least one field to update'),
+      annotations: mutationAnnotations,
+    },
+    async (changes) => {
+      const updated = await db.from('profiles').update(changes).eq('id', userId).select('*').single();
+      if (updated.error) fail(updated.error, 'Could not update profile');
+      return textResult({ updated: true, profile: updated.data });
+    },
+  );
+
+  const savedMealItemSchema = z.object({
+    name: z.string().trim().min(1).max(160),
+    brand: z.string().trim().max(120).optional(),
+    grams: z.number().positive().max(10_000),
+    calories: z.number().nonnegative().max(20_000),
+    protein_g: z.number().nonnegative().max(1_000),
+    carbs_g: z.number().nonnegative().max(2_000),
+    fat_g: z.number().nonnegative().max(1_000),
+    fiber_g: z.number().nonnegative().max(500).optional(),
+    sugar_g: z.number().nonnegative().max(1_000).optional(),
+  });
+
+  function buildSavedMealItem(item: z.infer<typeof savedMealItemSchema>, foodId: string) {
+    const nutrients: Nutrients = {
+      calories: item.calories,
+      protein: item.protein_g,
+      carbs: item.carbs_g,
+      fat: item.fat_g,
+      fiber: item.fiber_g,
+      sugar: item.sugar_g,
+    };
+    return {
+      food: {
+        id: foodId,
+        name: item.name,
+        brand: item.brand,
+        source: 'custom' as const,
+        servingUnit: 'g',
+        servingGrams: item.grams,
+        nutrientsPer100g: per100g(nutrients, item.grams),
+      },
+      grams: item.grams,
+    };
+  }
+
+  server.registerTool(
+    'list_saved_meals',
+    {
+      title: 'List saved meals',
+      description: 'List the user\'s reusable meal templates (e.g. "Usual breakfast").',
+      inputSchema: z.object({}),
+      annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+    },
+    async () => {
+      const { data, error } = await db.from('saved_meals').select('*').eq('user_id', userId).order('updated_at', { ascending: false });
+      if (error) fail(error, 'Could not list saved meals');
+      return textResult({ meals: data || [] });
+    },
+  );
+
+  server.registerTool(
+    'save_meal',
+    {
+      title: 'Save a reusable meal',
+      description: 'Create or update (pass id) a named meal template made of one or more food items, for quick reuse later.',
+      inputSchema: z.object({
+        id: z.string().uuid().optional().describe('Omit to create a new template, pass to replace an existing one\'s items'),
+        name: z.string().trim().min(1).max(80),
+        items: z.array(savedMealItemSchema).min(1).max(20),
+      }),
+      annotations: mutationAnnotations,
+    },
+    async (input) => {
+      const id = input.id || randomUUID();
+      const items = input.items.map((item, index) => buildSavedMealItem(item, `custom-${id}-${index}`));
+      const saved = await db.from('saved_meals').upsert({ id, user_id: userId, name: input.name, items }).select('*').single();
+      if (saved.error) fail(saved.error, 'Could not save meal');
+      return textResult({ saved: true, meal: saved.data });
+    },
+  );
+
+  server.registerTool(
+    'delete_saved_meal',
+    {
+      title: 'Delete a saved meal',
+      description: 'Permanently delete a reusable meal template.',
+      inputSchema: z.object({ saved_meal_id: z.string().uuid() }),
+      annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: false },
+    },
+    async ({ saved_meal_id }) => {
+      const deleted = await db.from('saved_meals').delete().eq('user_id', userId).eq('id', saved_meal_id).select('id');
+      if (deleted.error) fail(deleted.error, 'Could not delete saved meal');
+      return textResult({ deleted: true, saved_meal_id, found: (deleted.data?.length || 0) > 0 });
+    },
+  );
+
+  server.registerTool(
+    'log_saved_meal',
+    {
+      title: 'Log a saved meal',
+      description: 'Instantiate a saved meal template as logged food entries for a date and meal type.',
+      inputSchema: z.object({
+        saved_meal_id: z.string().uuid(),
+        log_date: dateSchema.optional(),
+        eaten_at: z.string().datetime({ offset: true }).optional(),
+        meal_type: z.enum(['breakfast', 'lunch', 'dinner', 'snack']),
+        source: sourceSchema.default('ai_text'),
+        idempotency_key: idempotencySchema,
+      }),
+      annotations: mutationAnnotations,
+    },
+    async (input) => {
+      const existing = await db.from('meal_entries').select('meal_session_id').eq('user_id', userId).eq('idempotency_key', `${input.idempotency_key}:0`).maybeSingle();
+      if (existing.error) fail(existing.error, 'Could not check meal retry key');
+      if (existing.data?.meal_session_id) {
+        const retried = await db.from('meal_entries').select('*').eq('user_id', userId).eq('meal_session_id', existing.data.meal_session_id);
+        if (retried.error) fail(retried.error, 'Could not load existing meal');
+        return textResult({ created: false, idempotent_replay: true, meal_session_id: existing.data.meal_session_id, items: retried.data });
+      }
+
+      const template = await db.from('saved_meals').select('*').eq('user_id', userId).eq('id', input.saved_meal_id).single();
+      if (template.error) fail(template.error, 'Saved meal was not found');
+      const templateItems = (template.data.items || []) as Array<{ food: { name: string; brand?: string; nutrientsPer100g: Nutrients }; grams: number }>;
+      if (!templateItems.length) throw new Error('This saved meal has no items');
+
+      const mealSessionId = randomUUID();
+      const eatenAt = input.eaten_at || new Date().toISOString();
+      const rows = templateItems.map((item, index) => ({
+        user_id: userId,
+        log_date: input.log_date || eatenAt.slice(0, 10),
+        meal_type: input.meal_type,
+        meal_session_id: mealSessionId,
+        food_snapshot: item.food,
+        grams: item.grams,
+        nutrients: scaleNutrients(item.food.nutrientsPer100g, item.grams),
+        meal_source: input.source,
+        source_metadata: { externalClientId: clientId },
+        idempotency_key: `${input.idempotency_key}:${index}`,
+        eaten_at: eatenAt,
+      }));
+      const inserted = await db.from('meal_entries').insert(rows).select('*');
+      if (inserted.error) fail(inserted.error, 'Could not log saved meal');
+      return textResult({ created: true, meal_session_id: mealSessionId, items: inserted.data, totals: sumNutrients(inserted.data || []) });
     },
   );
 

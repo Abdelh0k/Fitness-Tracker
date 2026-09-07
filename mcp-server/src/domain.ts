@@ -21,6 +21,19 @@ export function per100g(nutrients: Nutrients, grams: number): Nutrients {
   };
 }
 
+/** Inverse of per100g: scale a per-100g nutrient profile up to an actual portion. */
+export function scaleNutrients(per100gNutrients: Nutrients, grams: number): Nutrients {
+  const factor = grams / 100;
+  return {
+    calories: round(per100gNutrients.calories * factor, 0),
+    protein: round(per100gNutrients.protein * factor),
+    carbs: round(per100gNutrients.carbs * factor),
+    fat: round(per100gNutrients.fat * factor),
+    fiber: per100gNutrients.fiber == null ? undefined : round(per100gNutrients.fiber * factor),
+    sugar: per100gNutrients.sugar == null ? undefined : round(per100gNutrients.sugar * factor),
+  };
+}
+
 export function sumNutrients(rows: Array<{ nutrients?: Partial<Nutrients> | null }>): Nutrients {
   const total = rows.reduce<Nutrients>((sum, row) => {
     const value = row.nutrients || {};

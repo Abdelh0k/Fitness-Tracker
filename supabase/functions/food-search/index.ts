@@ -1,3 +1,5 @@
+import { familiarName, rankFoods } from '../_shared/food-search.ts';
+
 type Nutrients = {
   calories: number;
   protein: number;
@@ -31,6 +33,8 @@ type FoodResult = {
   servingUnit?: string;
   servingGrams?: number;
   nutrientsPer100g: Nutrients;
+  originalName?: string;
+  dataType?: string;
   _priority?: number;
 };
 
@@ -57,10 +61,10 @@ Deno.serve(async (req) => {
     }
 
     const [usda, openFoodFacts] = await Promise.allSettled([searchUsda(query), searchOpenFoodFacts(query)]);
-    const foods = dedupe([
+    const foods = rankFoods([
       ...(usda.status === 'fulfilled' ? usda.value : []),
       ...(openFoodFacts.status === 'fulfilled' ? openFoodFacts.value : [])
-    ])
+    ], query)
       .filter((food) => food.nutrientsPer100g.calories > 0 || food.nutrientsPer100g.protein > 0)
       .slice(0, 24)
       .map(({ _priority, ...food }) => food);
@@ -93,9 +97,10 @@ async function searchUsda(query: string): Promise<FoodResult[]> {
   // since they're no longer competing against dish and branded noise. So we run that restricted
   // call in parallel with the normal broad one and merge, rather than trying to out-sort a pool
   // that never contained the reference entry to begin with.
-  const [reference, broad] = await Promise.all([
-    fetchUsdaPage(query, ['Foundation', 'SR Legacy'], 25),
-    fetchUsdaPage(query, ['Foundation', 'SR Legacy', 'Survey (FNDDS)', 'Branded'], 50)
+  const [reference, broad, survey] = await Promise.all([
+    fetchUsdaPage(query.toLowerCase() === 'meat' ? 'beef' : query, ['Foundation', 'SR Legacy'], 25),
+    fetchUsdaPage(query, ['Foundation', 'SR Legacy', 'Survey (FNDDS)', 'Branded'], 50),
+    fetchUsdaPage(query, ['Survey (FNDDS)'], 25)
   ]);
 
   const dataTypePriority: Record<string, number> = { Foundation: 0, 'SR Legacy': 1, 'Survey (FNDDS)': 2, Branded: 3 };
@@ -103,7 +108,7 @@ async function searchUsda(query: string): Promise<FoodResult[]> {
   // the dish itself should still surface it) prepared/composite categories below plain
   // ingredient ones, so "Potato Soup" doesn't outrank "Boiled Potato" for a "potato" search.
   const compositeCategory = /soup|sauce|gravy|baked products|fast foods|restaurant foods|meals,? entrees|side dish|snacks|sweets|desserts/i;
-  return [...reference, ...broad]
+  return [...reference, ...broad, ...survey]
     .map((food: any) => {
       const nutrients = nutrientMap(food.foodNutrients || []);
       const category = String(food.foodCategory || food.brandedFoodCategory || '');
@@ -112,7 +117,9 @@ async function searchUsda(query: string): Promise<FoodResult[]> {
         id: `usda-${food.fdcId}`,
         source: 'usda' as const,
         sourceId: String(food.fdcId),
-        name: cleanName(food.description || food.lowercaseDescription || 'USDA food'),
+        name: familiarName(food.description || food.lowercaseDescription || 'USDA food'),
+        originalName: food.description || food.lowercaseDescription,
+        dataType: food.dataType,
         brand: food.brandOwner || food.brandName || undefined,
         servingUnit: food.servingSizeUnit ? `${food.servingSize || 100} ${food.servingSizeUnit}` : '100 g',
         // Leave this undefined when USDA doesn't actually provide a serving size, rather than
@@ -155,7 +162,7 @@ async function searchOpenFoodFacts(query: string): Promise<FoodResult[]> {
       id: `openfoodfacts-${product.code}`,
       source: 'openfoodfacts',
       sourceId: String(product.code),
-      name: cleanName(product.product_name || 'Packaged food'),
+      name: product.product_name || 'Packaged food',
       brand: product.brands || undefined,
       servingUnit: product.serving_size || '100 g',
       servingGrams: product.serving_quantity ? Number(product.serving_quantity) : undefined,
@@ -214,38 +221,6 @@ function nutrientMap(items: any[]): Nutrients {
     vitaminB12Ug: optional(find(1178)),
     folateUg: optional(find(1177))
   };
-}
-
-/** Collapses entries that are the same food under a different source/id, keeping the first (highest-priority) one. */
-function dedupe(foods: FoodResult[]): FoodResult[] {
-  const seen = new Set<string>();
-  const result: FoodResult[] = [];
-  for (const food of foods) {
-    const key = `${food.name.toLowerCase().trim()}|${(food.brand || '').toLowerCase().trim()}`;
-    if (seen.has(key)) continue;
-    seen.add(key);
-    result.push(food);
-  }
-  return result;
-}
-
-/**
- * USDA descriptions are comma-separated in category-first order ("Potato, Boiled, Nfs",
- * "Soup, Potato") rather than how anyone would actually say the food's name. Strip the
- * "Nfs" ("not further specified") tag and, for the common two-part case, flip the order
- * into plain English: "Potato, Boiled, Nfs" -> "Boiled Potato", "Soup, Potato" -> "Potato Soup".
- * Three-or-more-part descriptions are left comma-joined — no single reversal rule fits those.
- */
-function cleanName(value: string) {
-  const titled = value.toLowerCase().replace(/\b\w/g, (char) => char.toUpperCase());
-  const segments = titled
-    .split(',')
-    .map((segment) => segment.trim())
-    .filter((segment) => segment && !/^n\.?s$|^nfs$/i.test(segment));
-  if (segments.length === 0) return titled;
-  if (segments.length === 1) return segments[0];
-  if (segments.length === 2) return `${segments[1]} ${segments[0]}`;
-  return segments.join(', ');
 }
 
 function round1(value: number) {

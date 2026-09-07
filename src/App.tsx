@@ -1,3 +1,4 @@
+import { familiarName, matchesFood, rankFoods } from '../supabase/functions/_shared/food-search';
 import { Component, useEffect, useMemo, useState, type CSSProperties, type ReactNode } from 'react';
 import type { Session } from '@supabase/supabase-js';
 import {
@@ -33,7 +34,7 @@ import {
   Wheat,
   X
 } from 'lucide-react';
-import { calculateTargets, defaultProfile, mealTypes, scaleNutrients, seedFoods, sumNutrients } from './lib/nutrition';
+import { calculateTargets, defaultProfile, mealTypes, roundTo, scaleNutrients, seedFoods, sumNutrients } from './lib/nutrition';
 import { cardioMachineLabels, cyclingEffortLevels, estimateCardioCalories, rowingEffortLevels, type CyclingEffort, type RowingEffort } from './lib/cardioCalories';
 import { hasSupabaseConfig, supabase } from './lib/supabase';
 import Onboarding from './Onboarding';
@@ -1021,15 +1022,15 @@ function FoodView({
     }
     setBusy(true);
     try {
-      const localMatches = seedFoods.filter((food) => food.name.toLowerCase().includes(q.toLowerCase()) || food.brand?.toLowerCase().includes(q.toLowerCase()));
+      const localMatches = seedFoods.filter((food) => matchesFood(food, q));
       if (supabase && remoteEnabled) {
         const { data, error } = await supabase.functions.invoke('food-search', { body: { query: q } });
         if (!error && Array.isArray(data?.foods)) {
-          setResults(dedupeFoods([...localMatches, ...data.foods]));
+          setResults(rankFoods([...localMatches, ...(data.foods as Food[]).map((food) => food.source === 'usda' ? { ...food, originalName: food.originalName || food.name, name: familiarName(food.originalName || food.name) } : food)], q));
           return;
         }
       }
-      setResults(localMatches);
+      setResults(rankFoods(localMatches, q));
     } finally {
       setBusy(false);
     }
@@ -1175,7 +1176,7 @@ function FoodView({
               <button className="secondary small" onClick={search}>{busy ? <Loader2 className="spin" size={15} /> : 'Search'}</button>
             </div>
             <div className="search-panel-foot">
-              <p className="hint">{remoteEnabled ? 'Searching USDA and Open Food Facts.' : 'Offline list for now — add your Supabase keys for the full food database.'}</p>
+              <p className="hint">{remoteEnabled ? 'Common foods first - USDA and Open Food Facts' : 'Offline list for now — add your Supabase keys for the full food database.'}</p>
               <button className="text-button" onClick={() => setCustomModalOpen(true)}>Can't find it? Add it yourself</button>
             </div>
 
@@ -1189,7 +1190,7 @@ function FoodView({
                     <button className="food-result" key={food.id} onClick={() => addDraftItem(food)}>
                       <span className="food-avatar" style={{ background: tint }}><Icon size={18} aria-hidden="true" /></span>
                       <span className="food-result-copy">
-                        <strong>{food.name}</strong>
+                        <strong title={food.originalName}>{food.name}</strong>
                         <span>{food.brand || food.source} · {portion}</span>
                       </span>
                       <MacroMini nutrients={scaleNutrients(food.nutrientsPer100g, servingSize)} />
@@ -2242,44 +2243,184 @@ function musclesForExercise(exerciseName: string): MuscleGroup[] {
   return [...muscles];
 }
 
-function ProfileView({ profile, localMode, onSave, onSignOut }: { profile: UserProfile; localMode: boolean; onSave: (profile: UserProfile) => Promise<void>; onSignOut: () => Promise<void> }) {
-  const [draft, setDraft] = useState(profile);
-  const calculated = calculateTargets(draft);
+/** Each of calories/protein/fat/carbs falls back to the auto-calculated value unless the user overrode it; fat and carbs still rebalance around whichever calorie number ends up in effect. */
+function effectiveTargets(
+  auto: ReturnType<typeof calculateTargets>,
+  overrides: { calories: number | null; protein: number | null; fat: number | null; carbs: number | null }
+) {
+  const calorieTarget = overrides.calories ?? auto.calorieTarget;
+  const proteinTargetG = overrides.protein ?? auto.proteinTargetG;
+  const fatTargetG = overrides.fat ?? roundTo((calorieTarget * 0.25) / 9, 5);
+  const carbTargetG = overrides.carbs ?? Math.max(0, roundTo((calorieTarget - proteinTargetG * 4 - fatTargetG * 9) / 4, 5));
+  return { ...auto, calorieTarget, proteinTargetG, fatTargetG, carbTargetG };
+}
 
-  function save() {
-    void onSave({ ...draft, ...calculated });
+type SettingsSection = 'about' | 'account';
+
+const settingsSections: Array<{ key: SettingsSection; label: string }> = [
+  { key: 'about', label: 'About you' },
+  { key: 'account', label: 'Account' },
+];
+
+function ProfileView({ profile, localMode, onSave, onSignOut }: { profile: UserProfile; localMode: boolean; onSave: (profile: UserProfile) => Promise<void>; onSignOut: () => Promise<void> }) {
+  const [section, setSection] = useState<SettingsSection>('about');
+  const [draft, setDraft] = useState(profile);
+  const baseline = calculateTargets(profile);
+  const [manualCalories, setManualCalories] = useState<number | null>(() => (profile.calorieTarget !== baseline.calorieTarget ? profile.calorieTarget : null));
+  const [manualProtein, setManualProtein] = useState<number | null>(() => (profile.proteinTargetG !== baseline.proteinTargetG ? profile.proteinTargetG : null));
+  const [manualFat, setManualFat] = useState<number | null>(() => (profile.fatTargetG !== baseline.fatTargetG ? profile.fatTargetG : null));
+  const [manualCarbs, setManualCarbs] = useState<number | null>(() => (profile.carbTargetG !== baseline.carbTargetG ? profile.carbTargetG : null));
+  const autoCalc = calculateTargets(draft);
+  const calculated = effectiveTargets(autoCalc, { calories: manualCalories, protein: manualProtein, fat: manualFat, carbs: manualCarbs });
+  const macrosOverridden = manualProtein != null || manualFat != null || manualCarbs != null;
+
+  function saveAbout() {
+    void onSave({ ...draft, calorieTarget: profile.calorieTarget, proteinTargetG: profile.proteinTargetG, fatTargetG: profile.fatTargetG, carbTargetG: profile.carbTargetG });
+  }
+
+  function saveCalories() {
+    void onSave({ ...profile, ...calculated });
   }
 
   return (
     <section className="stack view profile-view">
-      <div className="panel">
-        <h2>About you</h2>
-        <div className="grid two">
-          <label>Name<input value={draft.name} onChange={(e) => setDraft({ ...draft, name: e.target.value })} /></label>
-          <label>Age<input value={draft.age} onChange={(e) => setDraft({ ...draft, age: Number(e.target.value) || 0 })} inputMode="numeric" /></label>
-          <label>Height cm<input value={draft.heightCm} onChange={(e) => setDraft({ ...draft, heightCm: Number(e.target.value) || 0 })} inputMode="decimal" /></label>
-          <label>Weight kg<input value={draft.currentWeightKg} onChange={(e) => setDraft({ ...draft, currentWeightKg: Number(e.target.value) || 0 })} inputMode="decimal" /></label>
-          <label>Goal<select value={draft.goal} onChange={(e) => setDraft({ ...draft, goal: e.target.value as UserProfile['goal'] })}><option value="fat_loss">Lose fat</option><option value="recomp">Lose fat and build muscle</option><option value="muscle_gain">Build muscle</option><option value="maintain">Stay where I am</option></select></label>
-          <label>Activity<select value={draft.activityLevel} onChange={(e) => setDraft({ ...draft, activityLevel: e.target.value as UserProfile['activityLevel'] })}><option value="light">Light</option><option value="moderate">Moderate</option><option value="active">Active</option><option value="very_active">Very active</option></select></label>
-          <label>Days you train<input value={draft.trainingDaysPerWeek} onChange={(e) => setDraft({ ...draft, trainingDaysPerWeek: Number(e.target.value) || 0 })} inputMode="numeric" /></label>
-          <label>Daily steps<input value={draft.dailyStepsTarget} onChange={(e) => setDraft({ ...draft, dailyStepsTarget: Number(e.target.value) || 0 })} inputMode="numeric" /></label>
-          <label>Cardio days<input value={draft.cardioDaysPerWeek ?? 2} onChange={(e) => setDraft({ ...draft, cardioDaysPerWeek: Number(e.target.value) || 0 })} inputMode="numeric" /></label>
-          <label>Goal weight <span className="label-optional">optional</span><input value={draft.targetWeightKg ?? ''} onChange={(e) => setDraft({ ...draft, targetWeightKg: Number(e.target.value) || undefined })} inputMode="decimal" placeholder="kg" /></label>
-          <label>How you train<select value={draft.experienceLevel || ''} onChange={(e) => setDraft({ ...draft, experienceLevel: (e.target.value || undefined) as UserProfile['experienceLevel'] })}><option value="">Rather not say</option><option value="new">Brand new</option><option value="returning">Getting back into it</option><option value="intermediate">A year or two in</option><option value="advanced">Been at it for years</option></select></label>
-          <label>How fast<select value={draft.weeklyPace || 'steady'} onChange={(e) => setDraft({ ...draft, weeklyPace: e.target.value as UserProfile['weeklyPace'] })} disabled={draft.goal === 'maintain'}><option value="easy">Take it easy</option><option value="steady">Steady</option><option value="fast">Push it</option></select></label>
+      <div className="settings-layout">
+        <div className="settings-nav" role="tablist" aria-label="Settings section">
+          {settingsSections.map((item) => (
+            <button key={item.key} role="tab" aria-selected={section === item.key} className={section === item.key ? 'active' : ''} onClick={() => setSection(item.key)}>
+              {item.label}
+            </button>
+          ))}
+        </div>
+
+        <div className="settings-content">
+          {section === 'about' ? (
+            <>
+              <div className="panel">
+                <div className="grid two">
+                  <label>Name<input value={draft.name} onChange={(e) => setDraft({ ...draft, name: e.target.value })} /></label>
+                  <label>Age<input value={draft.age} onChange={(e) => setDraft({ ...draft, age: Number(e.target.value) || 0 })} inputMode="numeric" /></label>
+                  <label>Height cm<input value={draft.heightCm} onChange={(e) => setDraft({ ...draft, heightCm: Number(e.target.value) || 0 })} inputMode="decimal" /></label>
+                  <label>Weight kg<input value={draft.currentWeightKg} onChange={(e) => setDraft({ ...draft, currentWeightKg: Number(e.target.value) || 0 })} inputMode="decimal" /></label>
+                  <label>Gender<select value={draft.gender} onChange={(e) => setDraft({ ...draft, gender: e.target.value as UserProfile['gender'] })}><option value="male">Male</option><option value="female">Female</option></select></label>
+                  <label>Goal<select value={draft.goal} onChange={(e) => setDraft({ ...draft, goal: e.target.value as UserProfile['goal'] })}><option value="fat_loss">Lose fat</option><option value="recomp">Lose fat and build muscle</option><option value="muscle_gain">Build muscle</option><option value="maintain">Stay where I am</option></select></label>
+                  <label>Days you train<input value={draft.trainingDaysPerWeek} onChange={(e) => setDraft({ ...draft, trainingDaysPerWeek: Number(e.target.value) || 0 })} inputMode="numeric" /></label>
+                  <label>Daily steps<input value={draft.dailyStepsTarget} onChange={(e) => setDraft({ ...draft, dailyStepsTarget: Number(e.target.value) || 0 })} inputMode="numeric" /></label>
+                  <label>Cardio days<input value={draft.cardioDaysPerWeek ?? 2} onChange={(e) => setDraft({ ...draft, cardioDaysPerWeek: Number(e.target.value) || 0 })} inputMode="numeric" /></label>
+                  <label>Goal weight <span className="label-optional">optional</span><input value={draft.targetWeightKg ?? ''} onChange={(e) => setDraft({ ...draft, targetWeightKg: Number(e.target.value) || undefined })} inputMode="decimal" placeholder="kg" /></label>
+                  <label>How you train<select value={draft.experienceLevel || ''} onChange={(e) => setDraft({ ...draft, experienceLevel: (e.target.value || undefined) as UserProfile['experienceLevel'] })}><option value="">Rather not say</option><option value="new">Brand new</option><option value="returning">Getting back into it</option><option value="intermediate">A year or two in</option><option value="advanced">Been at it for years</option></select></label>
+                  <label>How fast<select value={draft.weeklyPace || 'steady'} onChange={(e) => setDraft({ ...draft, weeklyPace: e.target.value as UserProfile['weeklyPace'] })} disabled={draft.goal === 'maintain'}><option value="easy">Take it easy</option><option value="steady">Steady</option><option value="fast">Push it</option></select></label>
+                </div>
+                <button className="primary" onClick={saveAbout}><Save size={16} /> Save</button>
+              </div>
+              <div className="panel target-card">
+                <p className="eyebrow">Your daily target</p>
+                <div className="target-calorie-edit">
+                  <input
+                    className="target-calorie-input"
+                    inputMode="numeric"
+                    value={calculated.calorieTarget}
+                    onChange={(e) => setManualCalories(Number(e.target.value) || 0)}
+                  />
+                  <span>kcal</span>
+                </div>
+                {manualCalories != null ? (
+                  <button type="button" className="link-button" onClick={() => setManualCalories(null)}>Use calculated value ({autoCalc.calorieTarget} kcal)</button>
+                ) : null}
+                <div className="target-macro-edit">
+                  <label>Protein (g)<input inputMode="numeric" value={calculated.proteinTargetG} onChange={(e) => setManualProtein(Number(e.target.value) || 0)} /></label>
+                  <label>Carbs (g)<input inputMode="numeric" value={calculated.carbTargetG} onChange={(e) => setManualCarbs(Number(e.target.value) || 0)} /></label>
+                  <label>Fat (g)<input inputMode="numeric" value={calculated.fatTargetG} onChange={(e) => setManualFat(Number(e.target.value) || 0)} /></label>
+                </div>
+                {macrosOverridden ? (
+                  <button
+                    type="button"
+                    className="link-button"
+                    onClick={() => { setManualProtein(null); setManualFat(null); setManualCarbs(null); }}
+                  >
+                    Use calculated macros ({autoCalc.proteinTargetG}p / {autoCalc.carbTargetG}c / {autoCalc.fatTargetG}f)
+                  </button>
+                ) : null}
+                <p className="hint">You burn around {calculated.bmr} doing nothing, roughly {calculated.tdee} on a normal day.</p>
+                <button className="primary" onClick={saveCalories}><Save size={16} /> Save</button>
+              </div>
+            </>
+          ) : null}
+
+          {section === 'account' ? (
+            <AccountSection localMode={localMode} onSignOut={onSignOut} />
+          ) : null}
         </div>
       </div>
-      <div className="panel target-card">
-        <p className="eyebrow">Your daily target</p>
-        <h2>{calculated.calorieTarget} kcal</h2>
-        <MacroMini nutrients={{ calories: calculated.calorieTarget, protein: calculated.proteinTargetG, carbs: calculated.carbTargetG, fat: calculated.fatTargetG }} />
-        <p className="hint">You burn around {calculated.bmr} doing nothing, roughly {calculated.tdee} on a normal day.</p>
-        <button className="primary" onClick={save}><Save size={16} /> Save</button>
-      </div>
+    </section>
+  );
+}
+
+function AccountSection({ localMode, onSignOut }: { localMode: boolean; onSignOut: () => Promise<void> }) {
+  const [email, setEmail] = useState('');
+  const [emailStatus, setEmailStatus] = useState<string | null>(null);
+  const [password, setPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+  const [passwordStatus, setPasswordStatus] = useState<string | null>(null);
+  const [busy, setBusy] = useState<'email' | 'password' | null>(null);
+
+  useEffect(() => {
+    if (!supabase || localMode) return;
+    supabase.auth.getUser().then(({ data }) => setEmail(data.user?.email ?? ''));
+  }, [localMode]);
+
+  async function changeEmail() {
+    if (!supabase || !email.trim()) return;
+    setBusy('email');
+    setEmailStatus(null);
+    const { error } = await supabase.auth.updateUser({ email: email.trim() });
+    setBusy(null);
+    setEmailStatus(error ? error.message : 'Check your inbox to confirm the new email.');
+  }
+
+  async function changePassword() {
+    if (!supabase) return;
+    if (password.length < 6) { setPasswordStatus('Password must be at least 6 characters.'); return; }
+    if (password !== confirmPassword) { setPasswordStatus('Passwords don\'t match.'); return; }
+    setBusy('password');
+    setPasswordStatus(null);
+    const { error } = await supabase.auth.updateUser({ password });
+    setBusy(null);
+    setPasswordStatus(error ? error.message : 'Password updated.');
+    if (!error) { setPassword(''); setConfirmPassword(''); }
+  }
+
+  return (
+    <>
+      {!localMode ? (
+        <>
+          <div className="panel">
+            <h2>Email</h2>
+            <div className="grid two">
+              <label>Email address<input type="email" value={email} onChange={(e) => setEmail(e.target.value)} /></label>
+            </div>
+            {emailStatus ? <p className="hint">{emailStatus}</p> : null}
+            <button className="secondary" disabled={busy === 'email'} onClick={changeEmail}>{busy === 'email' ? <Loader2 size={16} className="spin" /> : <Save size={16} />} Update email</button>
+          </div>
+          <div className="panel">
+            <h2>Password</h2>
+            <div className="grid two">
+              <label>New password<input type="password" value={password} onChange={(e) => setPassword(e.target.value)} /></label>
+              <label>Confirm password<input type="password" value={confirmPassword} onChange={(e) => setConfirmPassword(e.target.value)} /></label>
+            </div>
+            {passwordStatus ? <p className="hint">{passwordStatus}</p> : null}
+            <button className="secondary" disabled={busy === 'password'} onClick={changePassword}>{busy === 'password' ? <Loader2 size={16} className="spin" /> : <Save size={16} />} Update password</button>
+          </div>
+        </>
+      ) : (
+        <div className="panel">
+          <p className="hint">You're using Ateform on this device only — nothing syncs to an account, so there's no email or password to manage.</p>
+        </div>
+      )}
       <div className="panel">
         <button className="secondary" onClick={onSignOut}><LogOut size={16} /> {localMode ? 'Leave this device' : 'Sign out'}</button>
       </div>
-    </section>
+    </>
   );
 }
 
@@ -2509,16 +2650,6 @@ function unitLabel(food: Food) {
   return 'serving';
 }
 
-function dedupeFoods(foods: Food[]): Food[] {
-  const seen = new Set<string>();
-  return foods.filter((food) => {
-    const key = `${food.name.toLowerCase().trim()}|${(food.brand || '').toLowerCase().trim()}`;
-    if (seen.has(key)) return false;
-    seen.add(key);
-    return true;
-  });
-}
-
 function foodCategory(name: string) {
   const text = name.toLowerCase();
   if (/beef|steak|burger|meatball|pork|bacon|ham\b/.test(text)) return { Icon: Beef, tint: '#8a3a2c' };
@@ -2574,7 +2705,6 @@ function profileToRow(profile: UserProfile) {
     gender: profile.gender,
     height_cm: profile.heightCm,
     current_weight_kg: profile.currentWeightKg,
-    activity_level: profile.activityLevel,
     training_days_per_week: profile.trainingDaysPerWeek,
     daily_steps_target: profile.dailyStepsTarget,
     goal: profile.goal,
@@ -2598,7 +2728,6 @@ function profileFromRow(row: any): UserProfile {
     gender: row.gender || 'male',
     heightCm: row.height_cm || 182,
     currentWeightKg: row.current_weight_kg || 80,
-    activityLevel: row.activity_level || 'active',
     trainingDaysPerWeek: row.training_days_per_week || 5,
     dailyStepsTarget: row.daily_steps_target || 7000,
     goal: row.goal || 'recomp',

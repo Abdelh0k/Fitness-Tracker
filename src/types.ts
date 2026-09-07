@@ -1,7 +1,6 @@
 export type MealType = 'breakfast' | 'lunch' | 'dinner' | 'snack';
 export type MealSource = 'manual' | 'ai_photo' | 'ai_text' | 'ai_voice' | 'barcode' | 'import';
 export type Goal = 'fat_loss' | 'recomp' | 'muscle_gain' | 'maintain';
-export type ActivityLevel = 'light' | 'moderate' | 'active' | 'very_active';
 export type ExperienceLevel = 'new' | 'returning' | 'intermediate' | 'advanced';
 export type WeeklyPace = 'easy' | 'steady' | 'fast';
 
@@ -33,6 +32,8 @@ export type Food = {
   id: string;
   source: 'usda' | 'openfoodfacts' | 'custom' | 'seed';
   sourceId?: string;
+  originalName?: string;
+  dataType?: string;
   name: string;
   brand?: string;
   servingUnit?: string;
@@ -73,7 +74,6 @@ export type UserProfile = {
   gender: 'male' | 'female';
   heightCm: number;
   currentWeightKg: number;
-  activityLevel: ActivityLevel;
   trainingDaysPerWeek: number;
   dailyStepsTarget: number;
   goal: Goal;

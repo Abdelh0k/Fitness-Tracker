@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { per100g, sumNutrients } from './domain.js';
+import { per100g, scaleNutrients, sumNutrients } from './domain.js';
 import { decodeJwtPayload } from './auth.js';
 import { createAteformHttpHandler } from './http.js';
 import type { AppConfig } from './config.js';
@@ -22,6 +22,11 @@ test('per100g normalizes portion nutrients', () => {
     fiber: undefined,
     sugar: undefined,
   });
+});
+
+test('scaleNutrients is the inverse of per100g', () => {
+  const original = { calories: 250, protein: 20, carbs: 30, fat: 5 };
+  assert.deepEqual(scaleNutrients(per100g(original, 250), 250), { ...original, fiber: undefined, sugar: undefined });
 });
 
 test('sumNutrients tolerates missing optional values', () => {

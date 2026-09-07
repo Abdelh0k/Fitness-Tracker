@@ -1,6 +1,6 @@
 # Ateform MCP server
 
-This package exposes Ateform as an authenticated remote MCP server over Streamable HTTP. It is designed for clients such as ChatGPT or another MCP-capable assistant: the client can inspect a meal photo, propose portions and nutrients, ask the user to confirm, then call `log_meal`.
+This package exposes Ateform as an authenticated remote MCP server over Streamable HTTP, for clients such as Claude or ChatGPT. It covers everything a user can do in the app itself: search foods and log meals (including AI-estimated ones from a photo, after user confirmation), manage reusable meal and cardio-session templates, log and manage strength/cardio/steps/body-metric entries, manage weekly training programs, and read or update the user's profile and targets.
 
 The server does not receive or analyze image files itself. That is intentional: the connected AI client handles vision, while Ateform validates and stores structured values. This keeps the integration model-independent and avoids duplicating an image-analysis pipeline.
 
@@ -11,10 +11,14 @@ The server does not receive or analyze image files itself. That is intentional: 
 - The same user token is passed to the Supabase client, so existing RLS policies restrict every query and mutation to that user.
 - A Supabase service-role key is never used.
 - Mutation tools have MCP safety annotations. Meal deletion is marked destructive.
-- Meal, workout, and cardio retries use idempotency keys to avoid duplicate writes.
+- Meal and cardio logging (including from saved templates) use idempotency keys to avoid duplicate writes on retry. Workouts and body metrics upsert by date instead, so a retry naturally overwrites the same row rather than duplicating it.
 - AI meal items keep source, model, confidence, client, original label, and eating time metadata.
 
 ## Tools
+
+Every write tool is scoped to the authenticated user via Supabase RLS — there is no way for one Ateform user's session to touch another's data, regardless of what a tool call asks for.
+
+**Today & food**
 
 | Tool | Purpose |
 | --- | --- |
@@ -23,10 +27,42 @@ The server does not receive or analyze image files itself. That is intentional: 
 | `log_meal` | Save a confirmed structured meal, including photo estimates |
 | `update_meal` | Correct an item, portion, nutrients, or confidence |
 | `delete_meal` | Delete one meal session |
+| `list_saved_meals` | List reusable meal templates (e.g. "Usual breakfast") |
+| `save_meal` | Create or update a reusable meal template |
+| `delete_saved_meal` | Delete a reusable meal template |
+| `log_saved_meal` | Log a saved meal's items for a date/meal type |
+
+**Training**
+
+| Tool | Purpose |
+| --- | --- |
 | `log_workout` | Create or replace a dated strength session |
-| `log_cardio` | Add a retry-safe cardio entry |
+| `delete_workout` | Delete a dated strength session |
+| `list_programs` | List saved weekly training programs |
+| `save_program` | Create or update a weekly program (name + per-day exercises) |
+| `delete_program` | Delete a training program |
+
+**Cardio**
+
+| Tool | Purpose |
+| --- | --- |
+| `log_cardio` | Log a cardio entry; auto-estimates calories from ACSM/Compendium formulas when a `machine` and its speed/incline/watts/step-rate are given |
+| `delete_cardio` | Delete a cardio entry |
+| `list_saved_cardio_sessions` | List reusable cardio session templates (e.g. a regular treadmill routine) |
+| `save_cardio_session` | Create or update a reusable cardio session template |
+| `delete_saved_cardio_session` | Delete a reusable cardio session template |
+| `log_saved_cardio_session` | Log a saved cardio session, re-estimating calories from current bodyweight |
+| `log_steps` | Create or update the step count for a date |
+
+**Body & profile**
+
+| Tool | Purpose |
+| --- | --- |
 | `log_body_metric` | Create or update dated body measurements |
+| `delete_body_metric` | Delete a dated body measurement entry |
 | `get_progress_summary` | Read recent body and training history |
+| `get_profile` | Read personal details and daily nutrition/activity targets |
+| `update_profile` | Update any subset of personal details or targets |
 
 ## Supabase setup
 

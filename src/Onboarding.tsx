@@ -1,7 +1,7 @@
 import { useMemo, useState, type ReactNode } from 'react';
-import { ArrowLeft, Check, Dumbbell, Flame, Footprints, Target, User } from 'lucide-react';
+import { ArrowLeft, Check, Dumbbell, Flame, Target, User } from 'lucide-react';
 import { calculateTargets } from './lib/nutrition';
-import type { ActivityLevel, ExperienceLevel, Goal, UserProfile, WeeklyPace } from './types';
+import type { ExperienceLevel, Goal, UserProfile, WeeklyPace } from './types';
 
 /**
  * Nothing here is required. Every step can be skipped, and anything left blank
@@ -20,7 +20,6 @@ type Draft = {
   trainingDaysPerWeek: string;
   cardioDaysPerWeek: string;
   dailyStepsTarget: string;
-  activityLevel: ActivityLevel;
 };
 
 const goalOptions: Array<{ value: Goal; title: string; note: string }> = [
@@ -43,13 +42,6 @@ const experienceOptions: Array<{ value: ExperienceLevel; title: string; note: st
   { value: 'advanced', title: 'Been at it for years', note: 'Training is part of your life' }
 ];
 
-const activityOptions: Array<{ value: ActivityLevel; title: string; note: string }> = [
-  { value: 'light', title: 'Mostly sitting', note: 'Desk job, not much walking' },
-  { value: 'moderate', title: 'On my feet a bit', note: 'Some walking through the day' },
-  { value: 'active', title: 'Moving a lot', note: 'Rarely sat still for long' },
-  { value: 'very_active', title: 'On my feet all day', note: 'Physical job or very active' }
-];
-
 const stepPresets = [5000, 7500, 10000, 12500];
 
 export default function Onboarding({ profile, onComplete }: { profile: UserProfile; onComplete: (profile: UserProfile) => void }) {
@@ -66,8 +58,7 @@ export default function Onboarding({ profile, onComplete }: { profile: UserProfi
     experienceLevel: profile.experienceLevel,
     trainingDaysPerWeek: '',
     cardioDaysPerWeek: '',
-    dailyStepsTarget: '',
-    activityLevel: profile.activityLevel
+    dailyStepsTarget: ''
   });
 
   function set<K extends keyof Draft>(key: K, value: Draft[K]) {
@@ -205,14 +196,6 @@ export default function Onboarding({ profile, onComplete }: { profile: UserProfi
           </div>
         </div>
       )
-    },
-    {
-      key: 'activity',
-      icon: <Footprints size={20} />,
-      eyebrow: 'Almost there',
-      title: 'What are your days like?',
-      blurb: 'Outside of training — this is about your job and everyday life.',
-      body: <Choice options={activityOptions} current={draft.activityLevel} onSelect={(value) => set('activityLevel', value)} />
     }
   ];
 
@@ -365,8 +348,7 @@ function mergeDraft(profile: UserProfile, draft: Draft): UserProfile {
     experienceLevel: draft.experienceLevel,
     trainingDaysPerWeek: wholeNumber(draft.trainingDaysPerWeek, profile.trainingDaysPerWeek, 0, 14),
     cardioDaysPerWeek: wholeNumber(draft.cardioDaysPerWeek, profile.cardioDaysPerWeek ?? 2, 0, 14),
-    dailyStepsTarget: wholeNumber(draft.dailyStepsTarget, profile.dailyStepsTarget, 0, 100000),
-    activityLevel: draft.activityLevel
+    dailyStepsTarget: wholeNumber(draft.dailyStepsTarget, profile.dailyStepsTarget, 0, 100000)
   };
 }
 

@@ -1,13 +1,14 @@
-import type { ActivityLevel, Food, Goal, Nutrients, UserProfile, WeeklyPace } from '../types';
+import type { Food, Goal, Nutrients, UserProfile, WeeklyPace } from '../types';
 
 export const mealTypes = ['breakfast', 'lunch', 'dinner', 'snack'] as const;
 
-const activityMultipliers: Record<ActivityLevel, number> = {
-  light: 1.45,
-  moderate: 1.55,
-  active: 1.65,
-  very_active: 1.78
-};
+/** Derives an activity multiplier from actual training/cardio frequency and step target, instead of a self-reported bucket. */
+function deriveActivityMultiplier(trainingDaysPerWeek: number, cardioDaysPerWeek: number, dailyStepsTarget: number) {
+  const stepsFactor = dailyStepsTarget >= 13000 ? 0.18 : dailyStepsTarget >= 10000 ? 0.13 : dailyStepsTarget >= 8000 ? 0.09 : dailyStepsTarget >= 5000 ? 0.05 : 0;
+  const trainingFactor = Math.min(trainingDaysPerWeek, 6) * 0.05;
+  const cardioFactor = Math.min(cardioDaysPerWeek, 6) * 0.045;
+  return Math.min(1.2 + trainingFactor + cardioFactor + stepsFactor, 1.95);
+}
 
 const goalAdjustments: Record<Goal, number> = {
   fat_loss: -450,
@@ -28,12 +29,12 @@ export function roundTo(value: number, step = 5) {
 }
 
 export function calculateTargets(
-  input: Pick<UserProfile, 'age' | 'gender' | 'heightCm' | 'currentWeightKg' | 'activityLevel' | 'goal'> &
-    Partial<Pick<UserProfile, 'weeklyPace'>>
+  input: Pick<UserProfile, 'age' | 'gender' | 'heightCm' | 'currentWeightKg' | 'goal' | 'trainingDaysPerWeek' | 'dailyStepsTarget'> &
+    Partial<Pick<UserProfile, 'weeklyPace' | 'cardioDaysPerWeek'>>
 ) {
   const sexConstant = input.gender === 'male' ? 5 : -161;
   const bmr = 10 * input.currentWeightKg + 6.25 * input.heightCm - 5 * input.age + sexConstant;
-  const tdee = bmr * activityMultipliers[input.activityLevel];
+  const tdee = bmr * deriveActivityMultiplier(input.trainingDaysPerWeek, input.cardioDaysPerWeek ?? 2, input.dailyStepsTarget);
   const adjustment = goalAdjustments[input.goal] * paceFactors[input.weeklyPace || 'steady'];
   const calories = Math.max(1500, roundTo(tdee + adjustment, 10));
   const protein = roundTo(input.currentWeightKg * (input.goal === 'muscle_gain' ? 2.1 : 2.0), 5);
@@ -111,8 +112,10 @@ export function defaultProfile(): UserProfile {
     gender: 'male',
     heightCm: 182,
     currentWeightKg: 80,
-    activityLevel: 'active',
-    goal: 'recomp'
+    goal: 'recomp',
+    trainingDaysPerWeek: 5,
+    dailyStepsTarget: 7000,
+    cardioDaysPerWeek: 2
   });
 
   return {
@@ -122,7 +125,6 @@ export function defaultProfile(): UserProfile {
     gender: 'male',
     heightCm: 182,
     currentWeightKg: 80,
-    activityLevel: 'active',
     trainingDaysPerWeek: 5,
     dailyStepsTarget: 7000,
     goal: 'recomp',
