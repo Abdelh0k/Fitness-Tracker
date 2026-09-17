@@ -815,6 +815,18 @@ type OAuthAuthorization = {
   redirect_url?: string;
 };
 
+/** Only ever navigate to a plain http(s) URL - redirect_url is server-supplied but ultimately traces back to an OAuth client's registered URI, so a scheme like `javascript:` must never reach window.location.assign. */
+function safeRedirect(url: string | undefined): void {
+  if (!url) return;
+  let parsed: URL;
+  try {
+    parsed = new URL(url, window.location.origin);
+  } catch {
+    return;
+  }
+  if (parsed.protocol === 'http:' || parsed.protocol === 'https:') window.location.assign(parsed.toString());
+}
+
 /** Supabase's OAuth 2.1 server sends the browser here mid-flow (an AI client asking to connect); this page is the only thing standing between "click Connect" and a granted token. */
 function OAuthConsentView({ session }: { session: Session | null }) {
   const authorizationId = new URLSearchParams(window.location.search).get('authorization_id') || '';
@@ -828,7 +840,7 @@ function OAuthConsentView({ session }: { session: Session | null }) {
     supabase.auth.oauth.getAuthorizationDetails(authorizationId).then(({ data, error: fetchError }) => {
       if (cancelled) return;
       if (fetchError) { setError(fetchError.message); return; }
-      if (data?.redirect_url) { window.location.assign(data.redirect_url); return; }
+      if (data?.redirect_url) { safeRedirect(data.redirect_url); return; }
       setDetails(data);
     });
     return () => { cancelled = true; };
@@ -837,11 +849,12 @@ function OAuthConsentView({ session }: { session: Session | null }) {
   async function decide(action: 'approve' | 'deny') {
     if (!supabase) return;
     setBusy(action);
-    const { error: decisionError } =
+    const { data, error: decisionError } =
       action === 'approve'
-        ? await supabase.auth.oauth.approveAuthorization(authorizationId)
-        : await supabase.auth.oauth.denyAuthorization(authorizationId);
-    if (decisionError) { setError(decisionError.message); setBusy(null); }
+        ? await supabase.auth.oauth.approveAuthorization(authorizationId, { skipBrowserRedirect: true })
+        : await supabase.auth.oauth.denyAuthorization(authorizationId, { skipBrowserRedirect: true });
+    if (decisionError) { setError(decisionError.message); setBusy(null); return; }
+    safeRedirect(data?.redirect_url);
   }
 
   if (!authorizationId) {
