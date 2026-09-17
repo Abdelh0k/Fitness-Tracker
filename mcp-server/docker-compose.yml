@@ -1,0 +1,19 @@
+services:
+  mcp:
+    build: .
+    container_name: ateform-mcp
+    restart: unless-stopped
+    env_file: .env
+    networks:
+      - n8n_default
+    labels:
+      traefik.enable: "true"
+      traefik.http.routers.ateform-mcp.rule: "Host(`mcp.ateform.space`)"
+      traefik.http.routers.ateform-mcp.entrypoints: "web,websecure"
+      traefik.http.routers.ateform-mcp.tls: "true"
+      traefik.http.routers.ateform-mcp.tls.certresolver: "mytlschallenge"
+      traefik.http.services.ateform-mcp.loadbalancer.server.port: "8787"
+
+networks:
+  n8n_default:
+    external: true

@@ -103,15 +103,17 @@ ALLOWED_ORIGINS=https://chatgpt.com
 
 `GET /health` is public. The MCP endpoint and all user data require a valid Supabase access token. OAuth discovery is published at the RFC 9728 well-known URL derived from `MCP_PUBLIC_URL`.
 
-## Deploy
+## Deploy (Hostinger VPS, running live at mcp.ateform.space)
 
-Deploy `mcp-server` as a Node 22 web service and set `MCP_PUBLIC_URL` to its final HTTPS endpoint, for example `https://mcp.ateform.app/mcp`. Run:
+The VPS already runs an `n8n` stack behind Traefik on ports 80/443 (network `n8n_default`, ACME resolver `mytlschallenge`). Rather than run a second webserver, `ateform-mcp` is its own Docker Compose project that joins that same external network — Traefik's docker provider picks it up from its labels and issues its own Let's Encrypt cert for `mcp.ateform.space`, with zero changes to the n8n stack itself.
 
-```bash
-npm ci
-npm run build
-npm start
-```
+1. DNS: an A record `mcp` → the VPS IP, under `ateform.space`'s zone.
+2. Copy this `mcp-server` directory to the VPS (e.g. `/docker/ateform-mcp`), and write a `.env` there (not committed — see `.env.example` for the shape; `MCP_PUBLIC_URL=https://mcp.ateform.space/mcp`, `PORT=8787`).
+3. `docker compose up -d --build` inside that directory. `Dockerfile` and `docker-compose.yml` in this folder define the build and the Traefik labels (`Host(\`mcp.ateform.space\`)`, entrypoints `web,websecure`, `tls.certresolver=mytlschallenge`).
+4. Verify: `curl https://mcp.ateform.space/health` → `{"ok":true,...}`, and `curl https://mcp.ateform.space/.well-known/oauth-protected-resource/mcp` returns the RFC 9728 metadata pointing at the Supabase authorization server.
+5. Redeploy after a code change: re-copy the folder (or `git pull` if cloned), then `docker compose up -d --build` again.
+
+`ecosystem.config.cjs` is kept as an alternative for a plain VPS without Docker/Traefik already in the way — `pm2 start ecosystem.config.cjs` plus your own reverse proxy (Caddy, nginx) for TLS.
 
 Do not expose a localhost URL to external AI clients. For ChatGPT or the OpenAI API, configure the HTTPS `/mcp` URL as a remote MCP server and complete the Supabase OAuth flow. Keep approval enabled for write tools, particularly `log_meal`, until the user has reviewed the AI estimate.
 
