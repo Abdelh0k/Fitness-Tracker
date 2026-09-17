@@ -5,6 +5,7 @@ import { z } from 'zod';
 import type { AppConfig } from './config.js';
 import { estimateCardioCalories } from './cardioCalories.js';
 import { dateDaysAgo, per100g, scaleNutrients, sumNutrients, todayUtc, type Nutrients } from './domain.js';
+import { searchExercises, type MuscleGroup } from './exercises.js';
 
 const dateSchema = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Use YYYY-MM-DD');
 const sourceSchema = z.enum(['ai_photo', 'ai_text', 'ai_voice', 'import']);
@@ -253,6 +254,50 @@ export function buildAteformServer(config: AppConfig, authInfo?: AuthInfo): McpS
     },
   );
 
+  server.registerTool(
+    'delete_meal_item',
+    {
+      title: 'Delete one meal item',
+      description: 'Remove a single food item from a meal, leaving the rest of that meal session intact.',
+      inputSchema: z.object({ entry_id: z.string().uuid() }),
+      annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: false },
+    },
+    async ({ entry_id }) => {
+      const deleted = await db.from('meal_entries').delete().eq('user_id', userId).eq('id', entry_id).select('id');
+      if (deleted.error) fail(deleted.error, 'Could not delete meal item');
+      return textResult({ deleted: true, entry_id, found: (deleted.data?.length || 0) > 0 });
+    },
+  );
+
+  server.registerTool(
+    'list_meals',
+    {
+      title: 'List meals over a date range',
+      description: 'List logged meal items between two dates (inclusive), grouped by day with per-day nutrition totals.',
+      inputSchema: z.object({ from_date: dateSchema, to_date: dateSchema }),
+      annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+    },
+    async ({ from_date, to_date }) => {
+      const { data, error } = await db
+        .from('meal_entries')
+        .select('id,log_date,meal_type,meal_session_id,food_snapshot,grams,nutrients,meal_source,eaten_at')
+        .eq('user_id', userId)
+        .gte('log_date', from_date)
+        .lte('log_date', to_date)
+        .order('eaten_at');
+      if (error) fail(error, 'Could not list meals');
+      const byDay = new Map<string, typeof data>();
+      for (const item of data || []) {
+        if (!byDay.has(item.log_date)) byDay.set(item.log_date, []);
+        byDay.get(item.log_date)!.push(item);
+      }
+      const days = Array.from(byDay.entries())
+        .sort(([a], [b]) => a.localeCompare(b))
+        .map(([log_date, items]) => ({ log_date, items, totals: sumNutrients(items!) }));
+      return textResult({ from_date, to_date, days });
+    },
+  );
+
   const exerciseSchema = z.object({
     name: z.string().trim().min(1).max(120),
     sets: z.array(z.object({ reps: z.number().int().min(0).max(1_000), weight_kg: z.number().nonnegative().max(2_000).optional(), rir: z.number().int().min(0).max(10).optional() })).min(1).max(30),
@@ -305,6 +350,22 @@ export function buildAteformServer(config: AppConfig, authInfo?: AuthInfo): McpS
       const deleted = await db.from('strength_sessions').delete().eq('user_id', userId).eq('log_date', log_date).select('id');
       if (deleted.error) fail(deleted.error, 'Could not delete workout');
       return textResult({ deleted: true, log_date, found: (deleted.data?.length || 0) > 0 });
+    },
+  );
+
+  server.registerTool(
+    'search_exercises',
+    {
+      title: 'Search the exercise library',
+      description: 'Find canonical exercise names from Ateform\'s library, to use when logging a workout or building a program instead of guessing a name.',
+      inputSchema: z.object({
+        query: z.string().trim().min(2).max(80),
+        muscle: z.enum(['chest', 'back', 'shoulders', 'legs', 'glutes', 'biceps', 'triceps', 'forearms', 'abs']).optional(),
+      }),
+      annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+    },
+    async ({ query, muscle }) => {
+      return textResult({ query, results: searchExercises(query, muscle as MuscleGroup | undefined) });
     },
   );
 
@@ -842,6 +903,76 @@ export function buildAteformServer(config: AppConfig, authInfo?: AuthInfo): McpS
       const inserted = await db.from('meal_entries').insert(rows).select('*');
       if (inserted.error) fail(inserted.error, 'Could not log saved meal');
       return textResult({ created: true, meal_session_id: mealSessionId, items: inserted.data, totals: sumNutrients(inserted.data || []) });
+    },
+  );
+
+  server.registerTool(
+    'list_progress_photos',
+    {
+      title: 'List progress photos',
+      description: 'List progress photos, newest first, with a temporary signed URL for each.',
+      inputSchema: z.object({ limit: z.number().int().min(1).max(100).default(30) }),
+      annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+    },
+    async ({ limit }) => {
+      const { data, error } = await db.from('progress_photos').select('*').eq('user_id', userId).order('log_date', { ascending: false }).limit(limit);
+      if (error) fail(error, 'Could not list progress photos');
+      const photos = await Promise.all(
+        (data || []).map(async (row) => {
+          const signed = await db.storage.from('progress-photos').createSignedUrl(row.storage_path, 60 * 60 * 24 * 7);
+          return { id: row.id, log_date: row.log_date, label: row.label, url: signed.data?.signedUrl || null };
+        }),
+      );
+      return textResult({ photos });
+    },
+  );
+
+  const imageContentTypes: Record<string, string> = { 'image/jpeg': 'jpg', 'image/png': 'png', 'image/webp': 'webp' };
+
+  server.registerTool(
+    'upload_progress_photo',
+    {
+      title: 'Upload a progress photo',
+      description: 'Upload a base64-encoded progress photo for a date. Only ask for this after the user has explicitly shared or attached the photo.',
+      inputSchema: z.object({
+        log_date: dateSchema.optional(),
+        label: z.string().trim().min(1).max(80).default('Progress'),
+        content_type: z.enum(['image/jpeg', 'image/png', 'image/webp']),
+        image_base64: z.string().min(100).describe('Raw base64 image data, no data: URI prefix'),
+      }),
+      annotations: mutationAnnotations,
+    },
+    async ({ log_date, label, content_type, image_base64 }) => {
+      const bytes = Buffer.from(image_base64, 'base64');
+      if (bytes.byteLength > 8 * 1024 * 1024) throw new Error('Image is too large (max 8 MB)');
+      const date = log_date || todayUtc();
+      const id = randomUUID();
+      const path = `${userId}/${date}/${id}.${imageContentTypes[content_type]}`;
+      const upload = await db.storage.from('progress-photos').upload(path, bytes, { contentType: content_type, upsert: true });
+      if (upload.error) fail(upload.error, 'Could not upload photo');
+      const inserted = await db.from('progress_photos').insert({ id, user_id: userId, log_date: date, label, storage_path: path }).select('*').single();
+      if (inserted.error) fail(inserted.error, 'Could not save photo record');
+      const signed = await db.storage.from('progress-photos').createSignedUrl(path, 60 * 60 * 24 * 7);
+      return textResult({ created: true, photo: { id, log_date: date, label, url: signed.data?.signedUrl || null } });
+    },
+  );
+
+  server.registerTool(
+    'delete_progress_photo',
+    {
+      title: 'Delete a progress photo',
+      description: 'Permanently delete a progress photo.',
+      inputSchema: z.object({ photo_id: z.string().uuid() }),
+      annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: false },
+    },
+    async ({ photo_id }) => {
+      const existing = await db.from('progress_photos').select('storage_path').eq('user_id', userId).eq('id', photo_id).maybeSingle();
+      if (existing.error) fail(existing.error, 'Could not look up photo');
+      if (!existing.data) return textResult({ deleted: false, photo_id, found: false });
+      await db.storage.from('progress-photos').remove([existing.data.storage_path]);
+      const deleted = await db.from('progress_photos').delete().eq('user_id', userId).eq('id', photo_id).select('id');
+      if (deleted.error) fail(deleted.error, 'Could not delete photo');
+      return textResult({ deleted: true, photo_id, found: true });
     },
   );
 

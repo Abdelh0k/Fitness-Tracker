@@ -23,10 +23,12 @@ Every write tool is scoped to the authenticated user via Supabase RLS — there 
 | Tool | Purpose |
 | --- | --- |
 | `get_today_summary` | Nutrition, goals, workout, cardio, steps, and body data for a day |
+| `list_meals` | List logged meal items across a date range, grouped by day with totals |
 | `search_foods` | Search the deployed Ateform `food-search` Edge Function |
 | `log_meal` | Save a confirmed structured meal, including photo estimates |
 | `update_meal` | Correct an item, portion, nutrients, or confidence |
 | `delete_meal` | Delete one meal session |
+| `delete_meal_item` | Delete a single food item without deleting the rest of that meal |
 | `list_saved_meals` | List reusable meal templates (e.g. "Usual breakfast") |
 | `save_meal` | Create or update a reusable meal template |
 | `delete_saved_meal` | Delete a reusable meal template |
@@ -38,6 +40,7 @@ Every write tool is scoped to the authenticated user via Supabase RLS — there 
 | --- | --- |
 | `log_workout` | Create or replace a dated strength session |
 | `delete_workout` | Delete a dated strength session |
+| `search_exercises` | Find canonical exercise names/muscle group from Ateform's library |
 | `list_programs` | List saved weekly training programs |
 | `save_program` | Create or update a weekly program (name + per-day exercises) |
 | `delete_program` | Delete a training program |
@@ -61,8 +64,13 @@ Every write tool is scoped to the authenticated user via Supabase RLS — there 
 | `log_body_metric` | Create or update dated body measurements |
 | `delete_body_metric` | Delete a dated body measurement entry |
 | `get_progress_summary` | Read recent body and training history |
+| `list_progress_photos` | List progress photos with a temporary signed URL each |
+| `upload_progress_photo` | Upload a base64-encoded progress photo for a date |
+| `delete_progress_photo` | Delete a progress photo |
 | `get_profile` | Read personal details and daily nutrition/activity targets |
 | `update_profile` | Update any subset of personal details or targets |
+
+Deliberately not exposed: changing the account's email or password. That stays app-only — an AI-driven credential change is an account-takeover risk not worth taking.
 
 ## Supabase setup
 
