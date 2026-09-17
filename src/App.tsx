@@ -8,6 +8,7 @@ import {
   Bike,
   Camera,
   Carrot,
+  Check,
   ChevronDown,
   ChevronLeft,
   ChevronRight,
@@ -184,6 +185,10 @@ export default function App() {
     if (!supabase || !session || localMode) return;
     void loadRemote(session.user.id);
   }, [session, localMode]);
+
+  if (window.location.pathname === '/oauth/consent') {
+    return <OAuthConsentView session={session} />;
+  }
 
   function commit(next: LocalState) {
     setState(next);
@@ -800,6 +805,83 @@ function AuthScreen({ onLocal }: { onLocal: () => void }) {
           </button>
         </div>
       )}
+    </main>
+  );
+}
+
+type OAuthAuthorization = {
+  client: { name: string; logo_uri?: string };
+  scope: string;
+  redirect_url?: string;
+};
+
+/** Supabase's OAuth 2.1 server sends the browser here mid-flow (an AI client asking to connect); this page is the only thing standing between "click Connect" and a granted token. */
+function OAuthConsentView({ session }: { session: Session | null }) {
+  const authorizationId = new URLSearchParams(window.location.search).get('authorization_id') || '';
+  const [details, setDetails] = useState<OAuthAuthorization | null>(null);
+  const [error, setError] = useState('');
+  const [busy, setBusy] = useState<'approve' | 'deny' | null>(null);
+
+  useEffect(() => {
+    if (!supabase || !session || !authorizationId) return;
+    let cancelled = false;
+    supabase.auth.oauth.getAuthorizationDetails(authorizationId).then(({ data, error: fetchError }) => {
+      if (cancelled) return;
+      if (fetchError) { setError(fetchError.message); return; }
+      if (data?.redirect_url) { window.location.assign(data.redirect_url); return; }
+      setDetails(data);
+    });
+    return () => { cancelled = true; };
+  }, [session, authorizationId]);
+
+  async function decide(action: 'approve' | 'deny') {
+    if (!supabase) return;
+    setBusy(action);
+    const { error: decisionError } =
+      action === 'approve'
+        ? await supabase.auth.oauth.approveAuthorization(authorizationId)
+        : await supabase.auth.oauth.denyAuthorization(authorizationId);
+    if (decisionError) { setError(decisionError.message); setBusy(null); }
+  }
+
+  if (!authorizationId) {
+    return <main className="auth-screen"><section className="auth-card panel"><p>Missing authorization link. Ask the app you're connecting from to try again.</p></section></main>;
+  }
+
+  if (!session) {
+    return <AuthScreen onLocal={() => {}} />;
+  }
+
+  return (
+    <main className="auth-screen">
+      <div className="auth-brand" aria-label="Ateform">
+        <div className="brand-mark">A</div>
+        <span>Ateform</span>
+      </div>
+      <section className="auth-card panel consent-card">
+        {error ? (
+          <p className="auth-feedback error">{error}</p>
+        ) : !details ? (
+          <p className="hint"><Loader2 className="spin" size={16} /> Loading request…</p>
+        ) : (
+          <>
+            <div className="auth-heading">
+              <p className="eyebrow">Connect to Ateform</p>
+              <h1>{details.client.name}</h1>
+              <p>wants to access your Ateform account ({session.user.email}) — food, training, cardio, and profile data.</p>
+            </div>
+            <p className="hint">Scopes: {details.scope}</p>
+            <div className="grid two">
+              <button className="secondary" disabled={busy !== null} onClick={() => decide('deny')}>
+                {busy === 'deny' ? <Loader2 className="spin" size={16} /> : <X size={16} />} Deny
+              </button>
+              <button className="primary" disabled={busy !== null} onClick={() => decide('approve')}>
+                {busy === 'approve' ? <Loader2 className="spin" size={16} /> : <Check size={16} />} Allow
+              </button>
+            </div>
+          </>
+        )}
+      </section>
     </main>
   );
 }
